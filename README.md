@@ -30,3 +30,7 @@ Requires JDK 17+ and the Android SDK (or open the folder in Android Studio).
 ```
 
 Min Android 8.0 (API 26).
+
+## License
+
+[MIT](LICENSE)
