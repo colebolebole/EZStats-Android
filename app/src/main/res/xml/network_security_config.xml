@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  EZStats serves plain HTTP on port 8765 by default (HTTPS only behind a reverse proxy),
+  and the user chooses the server at runtime, so cleartext has to be allowed.
+  Prefer an https:// server URL whenever you can: over http:// the password and the
+  session cookie are sent unencrypted.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
