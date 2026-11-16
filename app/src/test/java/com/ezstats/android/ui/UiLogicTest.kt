@@ -12,6 +12,7 @@ import com.ezstats.android.ui.weather.forecastRange
 import com.ezstats.android.ui.weather.orderStations
 import com.ezstats.android.ui.weather.skyOf
 import com.ezstats.android.ui.weather.todaySentence
+import com.ezstats.android.ui.weather.weatherPages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,6 +43,37 @@ class UiLogicTest {
         )
         val order = orderStations(all, mapOf("mine" to listOf("Living room")))
         assertEquals(listOf("mine", "a", "b", "idle"), order.map { it.key })
+    }
+
+    @Test
+    fun weatherShowsEveryStationUntilYouStarSome() {
+        val all = listOf(station("a"), station("b"), station("c"))
+        assertEquals(listOf("a", "b", "c"), weatherPages(all, emptySet(), null, loaded = true).map { it.key })
+        // Browsing means nothing while there are no favorites: you already see everything.
+        assertEquals(listOf("a", "b", "c"), weatherPages(all, emptySet(), "b", loaded = true).map { it.key })
+    }
+
+    @Test
+    fun onceYouHaveFavoritesTheWeatherPageShowsOnlyThose() {
+        val all = listOf(station("a"), station("b"), station("c"))
+        assertEquals(listOf("b", "c"), weatherPages(all, setOf("b", "c"), null, loaded = true).map { it.key })
+    }
+
+    @Test
+    fun aStationYouBrowseIsAnExtraPageAndAFavoriteIsNotDuplicated() {
+        val all = listOf(station("a"), station("b"), station("c"))
+        assertEquals(listOf("b", "a"), weatherPages(all, setOf("b"), "a", loaded = true).map { it.key })
+        assertEquals(listOf("b"), weatherPages(all, setOf("b"), "b", loaded = true).map { it.key })
+        // A station that isn't on the server can't be browsed.
+        assertEquals(listOf("b"), weatherPages(all, setOf("b"), "zzz", loaded = true).map { it.key })
+    }
+
+    @Test
+    fun favoritesThatNoLongerExistFallBackToEverythingOnceLoaded() {
+        val all = listOf(station("a"), station("b"))
+        assertEquals(listOf("a", "b"), weatherPages(all, setOf("gone"), null, loaded = true).map { it.key })
+        // Still loading: show nothing rather than flash the wrong stations, then switch.
+        assertTrue(weatherPages(all, setOf("gone"), null, loaded = false).isEmpty())
     }
 
     @Test

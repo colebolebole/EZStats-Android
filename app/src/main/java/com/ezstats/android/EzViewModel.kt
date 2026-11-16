@@ -64,6 +64,12 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     /** The station the Weather tab shows (its pager follows this), or null for the first one. */
     var weatherStation by mutableStateOf<String?>(null)
 
+    /**
+     * The weather stations starred on the active server. The Weather tab pages through these once there are any;
+     * every station stays one tap away in its list. (Declared above `init`, which loads them through bind().)
+     */
+    var favoriteStations by mutableStateOf<Set<String>>(emptySet()); private set
+
     /** The device shown full screen, by key, or null for the dashboard. */
     var openDetail by mutableStateOf<String?>(null)
 
@@ -151,6 +157,17 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     private fun bind() {
         val server = active
         api = server?.let { s -> EzApi(s.url, store.cookie(s.id)) { store.setCookie(s.id, it) } }
+        favoriteStations = server?.let { store.favoriteStations(it.id) }.orEmpty()
+    }
+
+    fun toggleFavoriteStation(key: String) {
+        val server = active ?: return
+        val first = favoriteStations.isEmpty()
+        favoriteStations = if (key in favoriteStations) favoriteStations - key else favoriteStations + key
+        store.setFavoriteStations(server.id, favoriteStations)
+        if (first && favoriteStations.isNotEmpty()) {
+            messages.tryEmit("The Weather tab now shows your favorites. Every station is still in the list.")
+        }
     }
 
     private fun resetSession() {

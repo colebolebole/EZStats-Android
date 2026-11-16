@@ -130,9 +130,18 @@ class ServerStore(context: Context) {
         }.apply()
     }
 
+    /** The weather stations starred on this server (station keys belong to one server, so they're kept per server). */
+    fun favoriteStations(serverId: String): Set<String> =
+        prefs.getStringSet("fav_stations_$serverId", emptySet())?.toSet().orEmpty()
+
+    fun setFavoriteStations(serverId: String, keys: Set<String>) {
+        prefs.edit().putStringSet("fav_stations_$serverId", keys.toSet()).apply()
+    }
+
     fun delete(id: String) {
         setCookie(id, null)
         deleteSnapshot(id)
+        prefs.edit().remove("fav_stations_$id").apply()
         val remaining = list().filterNot { it.id == id }
         save(remaining)
         if (prefs.getString(KEY_ACTIVE, null) == id) {

@@ -74,6 +74,9 @@ import kotlin.math.roundToInt
 internal val OnSky = Color.White
 internal val OnSkyMuted = Color.White.copy(alpha = 0.72f)
 
+/** The gold of a starred station. */
+internal val Favorite = Color(0xFFFFD54F)
+
 private val COMPASS = listOf("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
 
 /** Degrees clockwise from north for a compass point such as "NW", or null. */

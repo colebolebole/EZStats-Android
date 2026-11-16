@@ -25,6 +25,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -68,9 +70,11 @@ private sealed interface PickerRow {
 fun StationPicker(
     stations: List<Station>,
     nearest: Map<String, List<String>>,
+    favorites: Set<String>,
     current: String?,
     bottom: Dp,
     loading: Boolean,
+    onToggleFavorite: (String) -> Unit,
     onPick: (String) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -78,16 +82,28 @@ fun StationPicker(
     var status by rememberSaveable { mutableStateOf("all") }
     var world by rememberSaveable { mutableStateOf("") }
     val focus = LocalFocusManager.current
+    // The Favorites filter goes away when the last favorite does; don't leave it selected.
+    androidx.compose.runtime.LaunchedEffect(favorites.isEmpty()) { if (favorites.isEmpty() && status == "favorites") status = "all" }
 
     val worlds = remember(stations) { stations.mapNotNull { it.world }.distinct().sorted() }
     val q = search.trim().lowercase()
     val shown = stations.filter {
         (world.isEmpty() || it.world == world) &&
-            (status == "all" || (status == "working") == it.working) &&
+            when (status) {
+                "working" -> it.working
+                "idle" -> !it.working
+                "favorites" -> it.key in favorites
+                else -> true
+            } &&
             (q.isEmpty() || it.label.lowercase().contains(q) || (it.world ?: "").lowercase().contains(q))
     }
     val rows = buildList {
-        val (working, idle) = shown.partition { it.working }
+        val (starred, rest) = shown.partition { it.key in favorites }
+        if (starred.isNotEmpty()) {
+            add(PickerRow.Header("Favorites", starred.size))
+            starred.forEach { add(PickerRow.Item(it)) }
+        }
+        val (working, idle) = rest.partition { it.working }
         val (mine, others) = working.partition { nearest[it.key].orEmpty().isNotEmpty() }
         if (mine.isNotEmpty()) {
             add(PickerRow.Header("Near your thermostats", mine.size))
@@ -109,13 +125,22 @@ fun StationPicker(
                 Column(Modifier.weight(1f)) {
                     Text("Locations", style = MaterialTheme.typography.headlineLarge)
                     val working = stations.count { it.working }
+                    val starred = stations.count { it.key in favorites }
                     Text(
-                        "${stations.size} stations · $working forecasting",
+                        "${stations.size} stations · $working forecasting" + if (starred > 0) " · $starred favorite${if (starred == 1) "" else "s"}" else "",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close") }
+            }
+            if (favorites.isEmpty() && !loading) {
+                Text(
+                    "Tap a star to keep a station on the Weather page. Tap a card to look at any station.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
             }
             if (loading) {
                 LinearWavyProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp))
@@ -136,7 +161,9 @@ fun StationPicker(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                listOf("all" to "All", "working" to "Forecasting", "idle" to "Not forecasting").forEach { (id, label) ->
+                listOf("all" to "All", "favorites" to "Favorites", "working" to "Forecasting", "idle" to "Not forecasting")
+                    .filter { it.first != "favorites" || favorites.isNotEmpty() }
+                    .forEach { (id, label) ->
                     FilterChip(selected = status == id, onClick = { status = id }, label = { Text(label) })
                 }
                 if (worlds.size > 1) {
@@ -167,6 +194,8 @@ fun StationPicker(
                                 row.station,
                                 nearest[row.station.key].orEmpty(),
                                 selected = row.station.key == current,
+                                favorite = row.station.key in favorites,
+                                onToggleFavorite = { onToggleFavorite(row.station.key) },
                                 onClick = { onPick(row.station.key) },
                             )
                         }
@@ -178,7 +207,14 @@ fun StationPicker(
 }
 
 @Composable
-private fun StationCard(s: Station, nearestFor: List<String>, selected: Boolean, onClick: () -> Unit) {
+private fun StationCard(
+    s: Station,
+    nearestFor: List<String>,
+    selected: Boolean,
+    favorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onClick: () -> Unit,
+) {
     val units = LocalUnits.current
     val dark = LocalIsDark.current
     val today = s.today
@@ -190,7 +226,24 @@ private fun StationCard(s: Station, nearestFor: List<String>, selected: Boolean,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(s.label, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            s.label,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        IconButton(onClick = onToggleFavorite, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                if (favorite) "Remove ${s.label} from favorites" else "Add ${s.label} to favorites",
+                                tint = if (favorite) Favorite else Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                     if (nearestFor.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Thermostat, null, Modifier.size(14.dp), tint = OnSkyMuted)

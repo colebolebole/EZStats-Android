@@ -33,6 +33,8 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
@@ -80,6 +82,9 @@ class WeatherUiState {
     var pageCount by mutableIntStateOf(0)
     val pager: PagerState = PagerState(currentPage = 0) { pageCount }
     var showPicker by mutableStateOf(false)
+
+    /** A station opened from the list that isn't a favorite: shown as one extra page until you pick another. */
+    var browsing by mutableStateOf<String?>(null)
     internal var currentKey: String? = null
     private val scrolls = HashMap<String, ScrollState>()
     fun scrollFor(key: String) = scrolls.getOrPut(key) { ScrollState(0) }
@@ -106,6 +111,20 @@ internal fun orderStations(all: List<Station>, nearest: Map<String, List<String>
 }
 
 /**
+ * The stations the Weather tab pages through (before they are ordered). With no favorites it is every station; once
+ * there are favorites it is those, plus the one station you are browsing from the list. Favorites the server no
+ * longer has fall back to showing everything, and while the list is still loading nothing is shown rather than
+ * flashing the wrong stations.
+ */
+internal fun weatherPages(all: List<Station>, favorites: Set<String>, browsing: String?, loaded: Boolean): List<Station> {
+    if (favorites.isEmpty()) return all
+    val chosen = all.filter { it.key in favorites }
+    if (chosen.isEmpty()) return if (loaded) all else emptyList()
+    val extra = all.firstOrNull { it.key == browsing && it.key !in favorites }
+    return if (extra == null) chosen else chosen + extra
+}
+
+/**
  * The Weather tab, made like a weather app: one station per page under a live sky, swiped between, with a list of
  * every station a tap away.
  */
@@ -118,7 +137,10 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues, ui: WeatherUiState) {
     val loaded = vm.weather
     val all = loaded?.stations ?: state?.stations?.values?.toList().orEmpty()
     val nearest = remember(state?.devices) { nearestNames(state) }
-    val ordered = remember(all, nearest) { orderStations(all, nearest) }
+    val favorites = vm.favoriteStations
+    val everyStation = remember(all, nearest) { orderStations(all, nearest) }
+    val pages = remember(all, favorites, ui.browsing, loaded != null) { weatherPages(all, favorites, ui.browsing, loaded != null) }
+    val ordered = remember(pages, nearest) { orderStations(pages, nearest) }
     val skies = remember(ordered) { ordered.map { skyOf(it) } }
     val pager = ui.pager
     SideEffect { ui.pageCount = ordered.size }
@@ -133,17 +155,30 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues, ui: WeatherUiState) {
         if (i >= 0 && i != pager.currentPage) pager.scrollToPage(i)
     }
     // A thermostat asked to show its station.
-    LaunchedEffect(vm.weatherStation, ordered) {
+    LaunchedEffect(vm.weatherStation, ordered, all) {
         val key = vm.weatherStation ?: return@LaunchedEffect
         val i = ordered.indexOfFirst { it.key == key }
         if (i >= 0) {
             pager.scrollToPage(i)
             ui.showPicker = false
             vm.weatherStation = null
+        } else if (all.any { it.key == key }) {
+            // Not one of your favorites: show it as a browsed page; this effect runs again once it is in the list.
+            ui.browsing = key
         }
     }
 
     BackHandler(enabled = ui.showPicker) { ui.showPicker = false }
+
+    fun toggleFavorite(key: String) {
+        if (key in favorites) {
+            // Un-starring the station you are looking at keeps it on screen as a browsed page, not pulled away.
+            if (favorites.size > 1) ui.browsing = key
+        } else if (ui.browsing == key) {
+            ui.browsing = null
+        }
+        vm.toggleFavoriteStation(key)
+    }
 
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp
     val bottom = padding.calculateBottomPadding()
@@ -199,8 +234,19 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues, ui: WeatherUiState) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 if (ordered.size > 1) PageDots(ordered.size, pager)
             }
+            if (loaded == null && ordered.isNotEmpty()) LoadingIndicator(Modifier.size(28.dp), color = OnSky)
+            val shown = ordered.getOrNull(pager.currentPage)
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                if (loaded == null && ordered.isNotEmpty()) LoadingIndicator(Modifier.size(28.dp), color = OnSky)
+                if (shown != null) {
+                    val favorite = shown.key in favorites
+                    IconButton(onClick = { toggleFavorite(shown.key) }) {
+                        Icon(
+                            if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                            if (favorite) "Remove ${shown.label} from favorites" else "Add ${shown.label} to favorites",
+                            tint = if (favorite) Favorite else OnSky,
+                        )
+                    }
+                }
             }
         }
 
@@ -212,14 +258,22 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues, ui: WeatherUiState) {
                 slideOutVertically(Motion.slide) { it / 14 },
         ) {
             StationPicker(
-                stations = ordered,
+                stations = everyStation,
                 nearest = nearest,
+                favorites = favorites,
                 current = ordered.getOrNull(pager.currentPage)?.key,
                 bottom = bottom,
                 loading = loaded == null,
+                onToggleFavorite = { key -> toggleFavorite(key) },
                 onPick = { key ->
                     val i = ordered.indexOfFirst { it.key == key }
-                    if (i >= 0) scope.launch { pager.scrollToPage(i) }
+                    if (i >= 0) {
+                        scope.launch { pager.scrollToPage(i) }
+                    } else {
+                        // Not a favorite: browse it as an extra page. The list changing scrolls the pager to it.
+                        ui.browsing = key
+                        ui.currentKey = key
+                    }
                     ui.showPicker = false
                 },
                 onClose = { ui.showPicker = false },

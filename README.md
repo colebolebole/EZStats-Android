@@ -18,7 +18,8 @@ and you choose which server (URL) to connect to.
 - **Rename devices, make homes, move devices between homes** – long-press a tile (or ⋮ on a full-screen device).
 - **Weather** tab (if the server has it on) – built like a weather app: swipe between stations under a live animated sky
   (sun, cloud, rain, snow, thunderstorms), each with a huge temperature, a summary of today, a week of range bars,
-  and wind, air quality, rain and lightning tiles. The list button shows every station, with search and filters.
+  and wind, air quality, rain and lightning tiles. Star the stations you care about and the page shows just those; the list button
+  still shows every station (search, filters, favorites first), and tapping one you haven't starred opens it as an extra page.
 - **Settings** – theme (system, light, dark), wallpaper colours, °F/°C (or follow the server), refresh rate,
   animated weather, and haptics on/off with a strength.
 - Material 3 Expressive: springy motion throughout, shape-morphing buttons, connected button groups, and
