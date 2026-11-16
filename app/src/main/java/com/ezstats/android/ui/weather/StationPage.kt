@@ -99,21 +99,6 @@ fun idleWord(s: Station) = when {
 }
 
 /** A sentence about today, from what the station knows: "Clear. Gusty afternoon. Wind NW at 12 mph." */
-/**
- * A note for when the temperature right now is well outside today's forecast, which usually means the forecast hasn't
- * caught up with something that just changed (a new season): the current temperature follows at once, the forecast
- * follows when the server recalculates it. Null when they agree, or there is no forecast.
- */
-internal fun forecastLagNote(s: Station, units: UnitFmt): String? {
-    val now = s.outdoorF ?: return null
-    val today = s.today ?: return null
-    val lo = today.lowF ?: return null
-    val hi = today.highF ?: return null
-    if (now in (lo - 5.0)..(hi + 5.0)) return null
-    return "It's ${units.whole(now)} right now, outside today's forecast of ${units.whole(lo)} to ${units.whole(hi)}. " +
-        "The forecast may not have caught up with a recent change, like a new season."
-}
-
 internal fun todaySentence(s: Station, units: UnitFmt): String? {
     val today = s.today ?: return null
     val parts = mutableListOf(skyName(today.sky) + " today")
@@ -205,9 +190,6 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
             }
             todaySentence(station, units)?.let { s ->
                 GlassCard(null, null) { Text(s, style = MaterialTheme.typography.bodyLarge, color = OnSky) }
-            }
-            forecastLagNote(station, units)?.let { note ->
-                GlassCard(null, null) { Text(note, style = MaterialTheme.typography.bodyMedium, color = OnSkyMuted) }
             }
             if (station.forecast.isNotEmpty()) {
                 GlassCard("${station.forecast.size}-day forecast", Icons.Rounded.CalendarMonth) {

@@ -8,7 +8,6 @@ import com.ezstats.android.ui.common.UnitFmt
 import com.ezstats.android.ui.common.rubberBand
 import com.ezstats.android.ui.weather.Sky
 import com.ezstats.android.ui.weather.compassDegrees
-import com.ezstats.android.ui.weather.forecastLagNote
 import com.ezstats.android.ui.weather.forecastRange
 import com.ezstats.android.ui.weather.orderStations
 import com.ezstats.android.ui.weather.skyOf
@@ -85,22 +84,6 @@ class UiLogicTest {
         // A flat week still gets a bar to draw on.
         val flat = listOf(ForecastDay(0, 60.0, 60.0, "clear", 0.0, 0.0, "", null, null))
         assertEquals(59.0 to 61.0, forecastRange(flat))
-    }
-
-    @Test
-    fun aTemperatureFarOutsideTodaysForecastGetsANote() {
-        val f = UnitFmt(false)
-        // station() forecasts 50-70 today: right now at 60, 74 and 46 is ordinary.
-        assertNull(forecastLagNote(station("s"), f))
-        assertNull(forecastLagNote(station("s").copy(outdoorF = 74.0), f))
-        assertNull(forecastLagNote(station("s").copy(outdoorF = 46.0), f))
-        // 106 against 50-70 (a season was just changed): say so, with the numbers.
-        val note = forecastLagNote(station("s").copy(outdoorF = 106.0), f)!!
-        assertTrue(note.contains("106°") && note.contains("50°") && note.contains("70°"))
-        assertTrue(forecastLagNote(station("s").copy(outdoorF = 30.0), f) != null)
-        // Nothing to compare with when the station has no forecast or no reading.
-        assertNull(forecastLagNote(station("idle", working = false).copy(outdoorF = 106.0), f))
-        assertNull(forecastLagNote(station("s").copy(outdoorF = null), f))
     }
 
     @Test
