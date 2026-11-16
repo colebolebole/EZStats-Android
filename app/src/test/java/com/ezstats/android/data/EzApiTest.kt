@@ -83,6 +83,7 @@ class EzApiTest {
     private val sessions = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val seen = java.util.Collections.synchronizedList(mutableListOf<String>()) // "METHOD path body"
     private var savedCookie: String? = null
+    @Volatile private var olderServer = false
 
     @Before
     fun start() {
@@ -115,11 +116,24 @@ class EzApiTest {
                     Res(200, """{"ok":true}""", cookie = "abc123")
                 } else Res(401, """{"error":"Wrong username or password."}""")
             }
-            r.method == "GET" && r.path == "/link" ->
-                if (r.rawQuery == "token=GOODTOKEN") {
-                    sessions += "linked1"
-                    Res(302, "", cookie = "linked1", location = "/")
-                } else Res(410, "<h1>expired</h1>")
+            olderServer && r.path in listOf("/api/quicklogin", "/api/reset-password") -> Res(404, """{"error":"Not found"}""")
+            r.method == "POST" && r.path == "/api/quicklogin" -> {
+                if (!custom) return noHeader
+                val o = JSONObject(r.body)
+                if (o.getString("username") == "Locked") return Res(429, "")
+                if (o.getString("username") == "Steve" && o.getString("code") == "12345678") {
+                    sessions += "quick1"
+                    Res(200, """{"ok":true}""", cookie = "quick1")
+                } else Res(401, """{"error":"That code didn't work. Run /ezstats quicklogin in game for a new one."}""")
+            }
+            r.method == "POST" && r.path == "/api/reset-password" -> {
+                if (!custom) return noHeader
+                val o = JSONObject(r.body)
+                if (o.getString("username") == "Steve" && o.getString("code") == "87654321") {
+                    sessions += "reset1"
+                    Res(200, """{"ok":true}""", cookie = "reset1")
+                } else Res(401, """{"error":"That code didn't work. Run /ezstats resetpassword in game for a new one."}""")
+            }
             r.method == "GET" && r.path == "/api/state" -> if (signedIn(r)) Res(200, STATE) else notSignedIn
             r.method == "GET" && r.path == "/api/weather" -> if (signedIn(r)) Res(200, WEATHER) else notSignedIn
             r.method == "POST" && r.path == "/api/device/control" -> {
@@ -223,17 +237,93 @@ class EzApiTest {
     }
 
     @Test
-    fun linkAcceptsFullUrlOrBareToken() = runBlocking {
-        api().redeemLink("http://example.com:8765/link?token=GOODTOKEN")
-        assertEquals("linked1", savedCookie)
+    fun quickLoginSendsTheDigitsAndStoresTheCookie() = runBlocking {
+        // Spaces and dashes in the code are fine; the server gets plain digits.
+        api().quickLogin("Steve", "1234 5678")
+        assertEquals("quick1", savedCookie)
+        assertTrue(seen.last().contains("\"code\":\"12345678\""))
         savedCookie = null
-        api().redeemLink("GOODTOKEN")
-        assertEquals("linked1", savedCookie)
+        api().quickLogin("Steve", "1234-5678")
+        assertEquals("quick1", savedCookie)
         try {
-            api().redeemLink("http://x/link?token=OLD"); fail("expected expiry")
+            api().quickLogin("Steve", "00000000"); fail("expected a wrong code")
         } catch (e: ApiException) {
-            assertEquals(410, e.status)
-            assertTrue(e.message!!.contains("expired"))
+            assertEquals(401, e.status)
+            assertTrue(e.message!!.contains("/ezstats quicklogin"))
+        }
+        // A code that isn't 8 digits never reaches the server.
+        val before = seen.size
+        try {
+            api().quickLogin("Steve", "1234"); fail("expected a short code")
+        } catch (e: ApiException) {
+            assertEquals(400, e.status)
+        }
+        assertEquals(before, seen.size)
+    }
+
+    @Test
+    fun resetPasswordSendsTheNewPasswordAndSignsIn() = runBlocking {
+        api().resetPassword("Steve", "8765 4321", "a-new-password")
+        assertEquals("reset1", savedCookie)
+        val sent = JSONObject(seen.last().substringAfter("/api/reset-password "))
+        assertEquals("87654321", sent.getString("code"))
+        assertEquals("a-new-password", sent.getString("password"))
+        savedCookie = null
+        try {
+            api().resetPassword("Steve", "11111111", "a-new-password"); fail("expected a wrong code")
+        } catch (e: ApiException) {
+            assertEquals(401, e.status)
+            assertTrue(e.message!!.contains("/ezstats resetpassword"))
+        }
+        assertNull(savedCookie)
+        // A bad password is refused before the code is spent (the server would reject it too).
+        val before = seen.size
+        for (bad in listOf("short", "has a space in it", "x".repeat(129))) {
+            try {
+                api().resetPassword("Steve", "87654321", bad); fail("expected '$bad' to be refused")
+            } catch (e: ApiException) {
+                assertEquals(400, e.status)
+            }
+        }
+        assertEquals(before, seen.size)
+    }
+
+    @Test
+    fun codesAndPasswordsAreChecked() {
+        assertEquals("12345678", codeDigits(" 1234 5678 "))
+        assertEquals("12345678", codeDigits("1234-5678"))
+        assertNull(codeDigits("1234567"))
+        assertNull(codeDigits("123456789"))
+        assertNull(codeDigits("1234567a"))
+        assertNull(passwordProblem("eightchr"))
+        assertNull(passwordProblem("x".repeat(128)))
+        assertTrue(passwordProblem("seven77") != null)
+    }
+
+    @Test
+    fun anOlderServerSaysWhatItNeeds() = runBlocking {
+        olderServer = true // answers 404 to /api/quicklogin and /api/reset-password, as a server before 0.7.0 does
+        try {
+            api().quickLogin("Steve", "12345678"); fail("expected 404")
+        } catch (e: ApiException) {
+            assertEquals(404, e.status)
+            assertTrue(e.message!!.contains("0.7.0"))
+        }
+        try {
+            api().resetPassword("Steve", "87654321", "a-new-password"); fail("expected 404")
+        } catch (e: ApiException) {
+            assertEquals(404, e.status)
+            assertTrue(e.message!!.contains("0.7.1"))
+        }
+    }
+
+    @Test
+    fun tooManyTriesGetsAFriendlyAnswer() = runBlocking {
+        try {
+            api().quickLogin("Locked", "12345678"); fail("expected 429")
+        } catch (e: ApiException) {
+            assertEquals(429, e.status)
+            assertTrue(e.message!!.contains("Wait"))
         }
     }
 

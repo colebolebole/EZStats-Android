@@ -33,8 +33,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LockReset
 import androidx.compose.material.icons.rounded.Password
+import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -126,18 +127,39 @@ fun OfflineScreen(vm: EzViewModel) {
     }
 }
 
-/** Sign in with a name and password, or a one-time link from the game. */
+/** Which way of signing in the login screen is showing. */
+private const val PASSWORD = 0
+private const val QUICKLOGIN = 1
+private const val RESET = 2
+
+/** Sign in with a name and password or a QuickLogin code from the game, or reset the password with a code. */
 @Composable
 fun LoginScreen(vm: EzViewModel) {
     var user by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
-    var link by rememberSaveable { mutableStateOf("") }
-    var useLink by rememberSaveable { mutableStateOf(false) }
+    var code by rememberSaveable { mutableStateOf("") }
+    var newPass by rememberSaveable { mutableStateOf("") }
+    var mode by rememberSaveable { mutableStateOf(PASSWORD) }
     var show by remember { mutableStateOf(false) }
-    val ready = if (useLink) link.isNotBlank() else user.isNotBlank() && pass.isNotEmpty()
+    val ready = when (mode) {
+        QUICKLOGIN -> user.isNotBlank() && code.length == 8
+        RESET -> user.isNotBlank() && code.length == 8 && newPass.isNotEmpty()
+        else -> user.isNotBlank() && pass.isNotEmpty()
+    }
     val submit = {
         if (!vm.loginBusy && ready) {
-            if (useLink) vm.signInWithLink(link) else vm.signIn(user, pass)
+            when (mode) {
+                QUICKLOGIN -> vm.signInWithCode(user, code)
+                RESET -> vm.resetPassword(user, code, newPass)
+                else -> vm.signIn(user, pass)
+            }
+        }
+    }
+    val switchTo = { next: Int ->
+        if (next != mode) {
+            mode = next
+            code = ""
+            vm.clearLoginError()
         }
     }
 
@@ -149,71 +171,65 @@ fun LoginScreen(vm: EzViewModel) {
                 .padding(horizontal = 28.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            HeroBadge(Icons.Rounded.Thermostat, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+            HeroBadge(
+                if (mode == RESET) Icons.Rounded.LockReset else Icons.Rounded.Thermostat,
+                MaterialTheme.colorScheme.primaryContainer,
+                MaterialTheme.colorScheme.onPrimaryContainer,
+            )
             Spacer(Modifier.height(24.dp))
-            Text("Welcome back", style = MaterialTheme.typography.headlineLarge)
+            Text(if (mode == RESET) "Reset password" else "Welcome back", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(4.dp))
             Text(vm.active?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Text(vm.active?.url.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(28.dp))
 
-            // Password or link: a connected pair of toggles.
-            androidx.compose.foundation.layout.Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-            ) {
-                ToggleButton(
-                    checked = !useLink,
-                    onCheckedChange = { useLink = false },
-                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                    modifier = Modifier.weight(1f),
+            // Password or QuickLogin: a connected pair of toggles (resetting a password has neither).
+            if (mode != RESET) {
+                androidx.compose.foundation.layout.Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
                 ) {
-                    Icon(Icons.Rounded.Password, null, Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("Password")
+                    ToggleButton(
+                        checked = mode == PASSWORD,
+                        onCheckedChange = { switchTo(PASSWORD) },
+                        shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.Password, null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("Password")
+                    }
+                    ToggleButton(
+                        checked = mode == QUICKLOGIN,
+                        onCheckedChange = { switchTo(QUICKLOGIN) },
+                        shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.Pin, null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("QuickLogin")
+                    }
                 }
-                ToggleButton(
-                    checked = useLink,
-                    onCheckedChange = { useLink = true },
-                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.Rounded.Link, null, Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("One-time link")
-                }
+                Spacer(Modifier.height(20.dp))
             }
-            Spacer(Modifier.height(20.dp))
 
             AnimatedContent(
-                targetState = useLink,
+                targetState = mode,
                 transitionSpec = { fadeIn(Motion.fadeIn(40)) togetherWith fadeOut(Motion.fadeOut()) },
                 label = "login mode",
-            ) { linkMode ->
+            ) { shown ->
                 Column {
-                    if (linkMode) {
-                        OutlinedTextField(
-                            value = link,
-                            onValueChange = { link = it },
-                            label = { Text("Link or token") },
-                            supportingText = { Text("Run /ezstats link in game, then paste what it gives you.") },
-                            minLines = 2,
-                            shape = MaterialTheme.shapes.medium,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { submit() }),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        OutlinedTextField(
-                            value = user,
-                            onValueChange = { user = it },
-                            label = { Text("Minecraft name") },
-                            singleLine = true,
-                            shape = MaterialTheme.shapes.medium,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = user,
+                        onValueChange = { user = it },
+                        label = { Text("Minecraft name") },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.medium,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    if (shown == PASSWORD) {
                         OutlinedTextField(
                             value = pass,
                             onValueChange = { pass = it },
@@ -221,16 +237,49 @@ fun LoginScreen(vm: EzViewModel) {
                             singleLine = true,
                             shape = MaterialTheme.shapes.medium,
                             visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { show = !show }) {
-                                    Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (show) "Hide password" else "Show password")
-                                }
-                            },
+                            trailingIcon = { ShowToggle(show) { show = !show } },
                             supportingText = { Text("Set in game with /ezstats register") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { submit() }),
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        TextButton(onClick = { switchTo(RESET) }, modifier = Modifier.align(Alignment.End)) { Text("Forgot password?") }
+                    } else {
+                        OutlinedTextField(
+                            value = code,
+                            onValueChange = { code = it.filter(Char::isDigit).take(8) },
+                            label = { Text("8 digit code") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.medium,
+                            supportingText = {
+                                Text(
+                                    if (shown == QUICKLOGIN) "Run /ezstats quicklogin in game. The code comes in chat and works once, for 5 minutes."
+                                    else "Run /ezstats resetpassword in game. The code comes in chat and works once, for 5 minutes.",
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.NumberPassword,
+                                imeAction = if (shown == RESET) ImeAction.Next else ImeAction.Done,
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submit() }),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (shown == RESET) {
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = newPass,
+                                onValueChange = { newPass = it },
+                                label = { Text("New password") },
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
+                                visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = { ShowToggle(show) { show = !show } },
+                                supportingText = { Text("8 to 128 characters, no spaces. It goes straight to the server, never into Minecraft.") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }
@@ -258,14 +307,24 @@ fun LoginScreen(vm: EzViewModel) {
                     enabled = ready,
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                ) { Text(if (useLink) "Open link" else "Sign in", style = MaterialTheme.typography.titleMedium) }
+                ) { Text(if (mode == RESET) "Set password and sign in" else "Sign in", style = MaterialTheme.typography.titleMedium) }
             }
             Spacer(Modifier.height(8.dp))
+            if (mode == RESET) {
+                TextButton(onClick = { switchTo(PASSWORD) }) { Text("Back to sign in") }
+            }
             TextButton(onClick = { vm.showServers = true }) {
                 Icon(Icons.Rounded.Dns, null, Modifier.size(18.dp))
                 Spacer(Modifier.size(8.dp))
                 Text("Change server")
             }
         }
+    }
+}
+
+@Composable
+private fun ShowToggle(show: Boolean, onToggle: () -> Unit) {
+    IconButton(onClick = onToggle) {
+        Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (show) "Hide password" else "Show password")
     }
 }

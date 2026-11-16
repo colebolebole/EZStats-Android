@@ -6,12 +6,23 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 
 /** A failed call. [status] is the HTTP status, or 0 when the server couldn't be reached at all. */
 class ApiException(val status: Int, message: String) : Exception(message)
 
 class ControlResult(val adjusted: Boolean, val message: String)
+
+/** The 8 digits of a QuickLogin or reset code (the server ignores spaces and dashes too), or null if it isn't one. */
+fun codeDigits(input: String): String? =
+    input.filter { !it.isWhitespace() && it != '-' }.takeIf { it.length == 8 && it.all(Char::isDigit) }
+
+/** Why [password] won't do as a new password (the server's rule: 8 to 128 characters, no whitespace), or null. */
+fun passwordProblem(password: String): String? = when {
+    password.length < 8 -> "The new password needs at least 8 characters."
+    password.length > 128 -> "The new password can be at most 128 characters."
+    password.any { it.isWhitespace() } -> "The new password can't contain spaces."
+    else -> null
+}
 
 /**
  * Talks to one EZStats server's JSON API (the same one its web page uses) and keeps its session cookie.
@@ -87,7 +98,8 @@ class EzApi(
         } catch (e: Exception) {
             null
         }
-        return ApiException(r.code, message ?: "The server answered ${r.code}.")
+        val fallback = if (r.code == 429) "Too many wrong tries. Wait a few minutes, then try again." else "The server answered ${r.code}."
+        return ApiException(r.code, message ?: fallback)
     }
 
     private fun checked(r: Response): Response {
@@ -109,15 +121,28 @@ class EzApi(
         store(r.setCookie ?: throw ApiException(500, "The server didn't start a session."))
     }
 
-    /** Spends the one-time link from `/ezstats link`: a full link, or just its token. */
-    suspend fun redeemLink(input: String) {
-        val trimmed = input.trim()
-        val token = Regex("[?&]token=([^&#\\s]+)").find(trimmed)?.groupValues?.get(1)
-            ?: trimmed.substringAfterLast('=').trim()
-        if (token.isEmpty()) throw ApiException(400, "Paste the link from /ezstats link.")
-        val r = request("GET", "/link?token=" + URLEncoder.encode(java.net.URLDecoder.decode(token, "UTF-8"), "UTF-8"))
-        if (r.code == 410) throw ApiException(410, "That link has expired. Run /ezstats link in game for a new one.")
-        if (r.code !in 200..399) throw failure(r)
+    /** QuickLogin (EZStats 0.7.0+): the Minecraft name and the 8 digit code `/ezstats quicklogin` sent in chat. */
+    suspend fun quickLogin(username: String, code: String) {
+        val digits = codeDigits(code) ?: throw ApiException(400, "The code is 8 digits.")
+        val r = request("POST", "/api/quicklogin", JSONObject().put("username", username).put("code", digits))
+        if (r.code == 404) throw ApiException(404, "This server doesn't have QuickLogin. It needs EZStats 0.7.0 or newer.")
+        checked(r)
+        store(r.setCookie ?: throw ApiException(500, "The server didn't start a session."))
+    }
+
+    /**
+     * Password reset (EZStats 0.7.1+): the name, the 8 digit code `/ezstats resetpassword` sent in chat, and the new
+     * password. It signs this device in, and the server ends the player's other sessions.
+     */
+    suspend fun resetPassword(username: String, code: String, newPassword: String) {
+        val digits = codeDigits(code) ?: throw ApiException(400, "The code is 8 digits.")
+        passwordProblem(newPassword)?.let { throw ApiException(400, it) }
+        val r = request(
+            "POST", "/api/reset-password",
+            JSONObject().put("username", username).put("code", digits).put("password", newPassword),
+        )
+        if (r.code == 404) throw ApiException(404, "This server can't reset passwords from the app. It needs EZStats 0.7.1 or newer.")
+        checked(r)
         store(r.setCookie ?: throw ApiException(500, "The server didn't start a session."))
     }
 

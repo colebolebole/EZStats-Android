@@ -282,7 +282,14 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     fun signIn(username: String, password: String) = authenticate { it.login(username.trim(), password) }
 
-    fun signInWithLink(link: String) = authenticate { it.redeemLink(link) }
+    fun signInWithCode(username: String, code: String) = authenticate { it.quickLogin(username.trim(), code) }
+
+    fun resetPassword(username: String, code: String, newPassword: String) =
+        authenticate { it.resetPassword(username.trim(), code, newPassword) }
+
+    fun clearLoginError() {
+        loginError = null
+    }
 
     private fun authenticate(call: suspend (EzApi) -> Unit) {
         val a = api ?: return

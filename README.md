@@ -8,7 +8,9 @@ and you choose which server (URL) to connect to.
 
 - **Servers** – add, edit, delete and switch between EZStats servers. Each remembers its own login.
   URLs without a scheme (`192.168.1.10:8765`) default to `http://`.
-- **Sign in** – with your Minecraft name and the password from `/ezstats register`, or paste a one-time link from `/ezstats link`.
+- **Sign in** – with your Minecraft name and the password from `/ezstats register`, or with **QuickLogin**: run
+  `/ezstats quicklogin` in game and type the 8 digit code it sends you in chat (EZStats 0.7.0+). **Forgot password?**
+  takes the code from `/ezstats resetpassword` and a new password, typed in the app and sent straight to the server (EZStats 0.7.1+).
 - **Devices** – a live dashboard (every 2 s by default) grouped by home, with a summary of what is heating, cooling or needs a look:
   - thermostats open full screen with a draggable dial (with haptic detents), −/+, power, eco/normal/turbo profile,
     attention chips and the nearest weather station's week
