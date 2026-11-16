@@ -88,6 +88,14 @@ class WeatherUiState {
     internal var currentKey: String? = null
     private val scrolls = HashMap<String, ScrollState>()
     fun scrollFor(key: String) = scrolls.getOrPut(key) { ScrollState(0) }
+
+    /**
+     * Puts every station's page except [keep] back at the top. It runs once a swipe has settled, when the pages that
+     * were left are fully off screen, so the next station you swipe to always opens at its top.
+     */
+    suspend fun resetScrollsExcept(keep: String?) {
+        for ((key, state) in scrolls) if (key != keep && state.value != 0) state.scrollTo(0)
+    }
 }
 
 @Composable
@@ -149,6 +157,10 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues, ui: WeatherUiState) {
     val latest by rememberUpdatedState(ordered)
     LaunchedEffect(pager) {
         snapshotFlow { pager.currentPage }.collect { ui.currentKey = latest.getOrNull(it)?.key }
+    }
+    // Swiping to another station starts it at the top, not wherever you left it last time.
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.settledPage }.collect { ui.resetScrollsExcept(latest.getOrNull(it)?.key) }
     }
     LaunchedEffect(ordered) {
         val i = ordered.indexOfFirst { it.key == ui.currentKey }
