@@ -3,6 +3,18 @@ package com.ezstats.android.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.UnfoldLess
+import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -438,7 +450,14 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
         LocalUnits provides UnitFmt(state.units == "C"),
         LocalWritable provides state.writable,
     ) {
-        Scaffold(
+        AnimatedContent(
+            targetState = vm.openThermostat,
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+            label = "thermostat",
+        ) { open ->
+        if (open != null) {
+            ThermostatScreen(vm, open, state, snackbar)
+        } else Scaffold(
             modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
             topBar = {
                 TopAppBar(
@@ -506,6 +525,7 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
                 Tab.DEVICES -> DevicesTab(vm, padding)
                 Tab.WEATHER -> WeatherTab(vm, padding)
             }
+        }
         }
     }
 }
@@ -582,7 +602,17 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
         }
 
         item(span = { GridItemSpan(maxLineSpan) }, key = "new-home") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (state.homes.isNotEmpty()) {
+                    val ids = sections.map { it.first?.id ?: NO_HOME }
+                    val allCollapsed = ids.all { it in vm.collapsed }
+                    TextButton(onClick = { vm.setAllCollapsed(ids, !allCollapsed) }) {
+                        Icon(if (allCollapsed) Icons.Rounded.UnfoldMore else Icons.Rounded.UnfoldLess, null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text(if (allCollapsed) "Expand all" else "Collapse all")
+                    }
+                    Spacer(Modifier.size(8.dp))
+                }
                 OutlinedButton(onClick = { newHome = true }) {
                     Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
                     Spacer(Modifier.size(8.dp))
@@ -611,10 +641,18 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
         }
 
         sections.forEach { (home, list) ->
+            val sectionId = home?.id ?: NO_HOME
+            val expanded = state.homes.isEmpty() || sectionId !in vm.collapsed
             if (state.homes.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "home:${home?.id ?: "none"}") {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "home:$sectionId") {
                     var menu by remember { mutableStateOf(false) }
-                    SectionHeader(home?.name ?: "No home", list.size) {
+                    HomeHeader(
+                        title = home?.name ?: "No home",
+                        count = list.size,
+                        expanded = expanded,
+                        summary = homeSummary(list),
+                        onToggle = { vm.toggleHome(sectionId) },
+                    ) {
                         if (home != null) {
                             Box {
                                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${home.name}") }
@@ -635,7 +673,11 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
                     }
                 }
             }
-            items(list.sortedBy { order[it.kind] ?: 9 }, key = { it.key }) { d -> DeviceCard(vm, d, state) }
+            if (expanded) {
+                items(list.sortedBy { order[it.kind] ?: 9 }, key = { it.key }) { d ->
+                    Box(Modifier.animateItem()) { DeviceCard(vm, d, state) }
+                }
+            }
         }
     }
 
@@ -653,6 +695,51 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
             onDismiss = { deleteHome = null },
             onConfirm = { scope.launch { vm.deleteHome(h.id)?.let { vm.messages.tryEmit(it) } } },
         )
+    }
+}
+
+private const val NO_HOME = "none"
+
+/** "2 thermostats · 1 heating": what a folded-shut home still has to say for itself. */
+private fun homeSummary(list: List<com.ezstats.android.Device>): String? {
+    val thermostats = list.filter { it.isThermostat }
+    if (thermostats.isEmpty()) return if (list.isEmpty()) null else "${list.size} device${if (list.size == 1) "" else "s"}"
+    val parts = mutableListOf("${thermostats.size} thermostat${if (thermostats.size == 1) "" else "s"}")
+    thermostats.count { it.enabled && it.mode == "heating" }.takeIf { it > 0 }?.let { parts += "$it heating" }
+    thermostats.count { it.enabled && it.mode == "cooling" }.takeIf { it > 0 }?.let { parts += "$it cooling" }
+    return parts.joinToString(" · ")
+}
+
+/** A home's heading. Tapping it folds the home's devices away or brings them back. */
+@Composable
+private fun HomeHeader(
+    title: String,
+    count: Int,
+    expanded: Boolean,
+    summary: String?,
+    onToggle: () -> Unit,
+    menu: @Composable () -> Unit,
+) {
+    val rotation by animateFloatAsState(if (expanded) 0f else -90f, label = "chevron")
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClickLabel = if (expanded) "Collapse $title" else "Expand $title", onClick = onToggle),
+    ) {
+        Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.ExpandMore, null, Modifier.rotate(rotation), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f).padding(start = 8.dp, top = 10.dp, bottom = 10.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (!expanded && summary != null) {
+                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text("$count", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            menu()
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

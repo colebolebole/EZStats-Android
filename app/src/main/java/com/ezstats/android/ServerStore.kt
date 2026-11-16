@@ -58,6 +58,13 @@ class ServerStore(context: Context) {
         save(list().map { if (it.id == id) it.copy(name = name, url = url) else it })
     }
 
+    /** Ids of the homes the user has folded shut on the dashboard ("none" is the "No home" group). */
+    fun collapsedHomes(): Set<String> = prefs.getStringSet("collapsed_homes", emptySet())?.toSet().orEmpty()
+
+    fun setCollapsedHomes(ids: Set<String>) {
+        prefs.edit().putStringSet("collapsed_homes", ids.toSet()).apply()
+    }
+
     /** The session cookie EZStats gave us for this server, kept so a login survives restarts. */
     fun cookie(id: String): String? = prefs.getString("cookie_$id", null)
 

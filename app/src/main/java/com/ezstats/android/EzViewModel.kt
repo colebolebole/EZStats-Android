@@ -35,6 +35,12 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     var tab by mutableStateOf(Tab.DEVICES)
 
+    /** The key of the thermostat shown full screen, or null for the dashboard. */
+    var openThermostat by mutableStateOf<String?>(null)
+
+    /** Homes folded shut on the dashboard; remembered between launches. */
+    var collapsed by mutableStateOf(store.collapsedHomes()); private set
+
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     private var api: EzApi? = null
@@ -61,7 +67,18 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         loginError = null
         statusError = null
         tab = Tab.DEVICES
+        openThermostat = null
         inFlight.clear()
+    }
+
+    fun toggleHome(id: String) {
+        collapsed = if (id in collapsed) collapsed - id else collapsed + id
+        store.setCollapsedHomes(collapsed)
+    }
+
+    fun setAllCollapsed(ids: Collection<String>, collapse: Boolean) {
+        collapsed = if (collapse) collapsed + ids else collapsed - ids.toSet()
+        store.setCollapsedHomes(collapsed)
     }
 
     private fun reloadServers() {
