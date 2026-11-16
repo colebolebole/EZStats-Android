@@ -3,12 +3,18 @@ package com.ezstats.android.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.coroutines.cancellation.CancellationException
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.UnfoldLess
@@ -122,12 +128,22 @@ fun EzApp(vm: EzViewModel) {
 
     EzTheme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            when {
-                vm.active == null || vm.showServers -> ServersScreen(vm)
-                vm.status == Status.CHECKING -> CenteredProgress()
-                vm.status == Status.OFFLINE -> OfflineScreen(vm)
-                vm.status == Status.LOGIN -> LoginScreen(vm)
-                else -> MainScreen(vm, snackbar)
+            Box(Modifier.fillMaxSize()) {
+                // The main screen stays composed while Servers slides over it, so coming back changes nothing.
+                when {
+                    vm.active == null -> Unit
+                    vm.status == Status.CHECKING -> CenteredProgress()
+                    vm.status == Status.OFFLINE -> OfflineScreen(vm)
+                    vm.status == Status.LOGIN -> LoginScreen(vm)
+                    else -> MainScreen(vm, snackbar)
+                }
+                AnimatedVisibility(
+                    visible = vm.active == null || vm.showServers,
+                    enter = slideInHorizontally(tween(340, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)),
+                    exit = slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
+                ) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { ServersScreen(vm) }
+                }
             }
         }
     }
@@ -147,11 +163,29 @@ fun ServersScreen(vm: EzViewModel) {
     var adding by rememberSaveable { mutableStateOf(vm.servers.isEmpty()) }
     var deleting by remember { mutableStateOf<Server?>(null) }
     val canClose = vm.active != null
-    BackHandler(enabled = canClose) { vm.showServers = false }
+    val gesture = remember { Animatable(0f) }
+    // Dragging back shrinks the screen and nudges it away; letting go past the middle slides it out.
+    PredictiveBackHandler(enabled = canClose) { progress ->
+        try {
+            progress.collect { gesture.snapTo(it.progress) }
+            vm.showServers = false
+        } catch (e: CancellationException) {
+            gesture.animateTo(0f, tween(200))
+        }
+    }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        modifier = Modifier
+            .graphicsLayer {
+                val g = gesture.value
+                scaleX = 1f - 0.08f * g
+                scaleY = 1f - 0.08f * g
+                translationX = g * 40.dp.toPx()
+                shape = RoundedCornerShape((28 * g).dp)
+                clip = g > 0f
+            }
+            .nestedScroll(scroll.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
                 title = { Text("Servers") },
@@ -450,14 +484,9 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
         LocalUnits provides UnitFmt(state.units == "C"),
         LocalWritable provides state.writable,
     ) {
-        AnimatedContent(
-            targetState = vm.openThermostat,
-            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
-            label = "thermostat",
-        ) { open ->
-        if (open != null) {
-            ThermostatScreen(vm, open, state, snackbar)
-        } else Scaffold(
+        // The dashboard stays composed under the thermostat view, so it is exactly where you left it.
+        Box(Modifier.fillMaxSize()) {
+        Scaffold(
             modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
             topBar = {
                 TopAppBar(
@@ -526,6 +555,7 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
                 Tab.WEATHER -> WeatherTab(vm, padding)
             }
         }
+        vm.openThermostat?.let { key -> ThermostatOverlay(vm, key, state, snackbar) }
         }
     }
 }

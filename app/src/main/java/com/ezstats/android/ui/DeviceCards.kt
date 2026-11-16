@@ -117,6 +117,7 @@ fun DeviceFrame(
     homes: List<Home>,
     pill: @Composable () -> Unit,
     onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(28.dp)
@@ -147,8 +148,8 @@ fun DeviceFrame(
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { content() }
         }
     }
-    if (onClick != null) Card(onClick = onClick, shape = shape, colors = colors, content = inner)
-    else Card(shape = shape, colors = colors, content = inner)
+    if (onClick != null) Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors, content = inner)
+    else Card(modifier = modifier, shape = shape, colors = colors, content = inner)
 }
 
 // --- everything that isn't a thermostat ----------------------------------------------------------------

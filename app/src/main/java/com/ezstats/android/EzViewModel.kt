@@ -38,6 +38,9 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     /** The key of the thermostat shown full screen, or null for the dashboard. */
     var openThermostat by mutableStateOf<String?>(null)
 
+    /** Where each thermostat tile is on screen, so the full-screen view can grow from and shrink back to it. */
+    val tileBounds = HashMap<String, androidx.compose.ui.geometry.Rect>()
+
     /** Homes folded shut on the dashboard; remembered between launches. */
     var collapsed by mutableStateOf(store.collapsedHomes()); private set
 
