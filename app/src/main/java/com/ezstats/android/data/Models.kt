@@ -65,9 +65,9 @@ data class Cold(
     val chillerF: Double?,
 )
 
-/** A thermostat's last finished heating or cooling run (EZvac Pilot 8+): epoch milliseconds. */
+/** One finished heating or cooling run of a thermostat, in epoch milliseconds. */
 @Immutable
-data class LastRun(val mode: String, val startedAt: Long, val endedAt: Long)
+data class Run(val mode: String, val startedAt: Long, val endedAt: Long)
 
 @Immutable
 data class Reading(
@@ -113,7 +113,11 @@ data class Device(
      * redrawn on every poll for it. Null when EZvac doesn't say.
      */
     val modeMinutes: Long? = null,
-    val lastRun: LastRun? = null,
+    /**
+     * The thermostat's log (EZStats 0.7.3+): its last 5 finished runs, newest first. EZStats keeps them itself and
+     * sends an empty list when it has seen none; null when the server is older and has no log at all.
+     */
+    val runs: List<Run>? = null,
     // equipment
     val running: Boolean = false,
     val rpm: Double? = null,

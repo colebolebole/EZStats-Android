@@ -295,10 +295,18 @@ class EzApiTest {
         val t = s.devices.first { it.isThermostat }
         // Heating since 750 s before the server's read: 12 whole minutes, worked out on the server's own clock.
         assertEquals(12L, t.modeMinutes)
-        assertEquals(LastRun("cooling", 1799990000000, 1799991800000), t.lastRun)
-        // An older EZvac leaves all of it out.
+        // The log, newest first, as EZStats 0.7.3 sends it.
+        assertEquals(
+            listOf(Run("cooling", 1799990000000, 1799991800000), Run("heating", 1799980000000, 1799980180000)),
+            t.runs,
+        )
+        // An older EZvac or EZStats leaves all of it out: no log at all, which is not the same as an empty one.
         val f = s.devices.first { it.type == "refrigerator" }
-        assertNull(f.modeMinutes); assertNull(f.lastRun)
+        assertNull(f.modeMinutes); assertNull(f.runs)
+        val noLog = parseState(STATE.replace(Regex("\"runs\":\\[[^\\]]*\\],?"), "")).devices.first { it.isThermostat }
+        assertNull(noLog.runs)
+        val emptyLog = parseState(STATE.replace(Regex("\"runs\":\\[[^\\]]*\\]"), "\"runs\":[]")).devices.first { it.isThermostat }
+        assertEquals(emptyList<Run>(), emptyLog.runs)
     }
 
     @Test
@@ -444,7 +452,8 @@ class EzApiTest {
              "runningUnits":1,"totalUnits":2,"unitsOff":0,"profile":"eco","blocked":false,"attention":["cant_keep_up"],
              "nickname":"Lounge","home":"home1","weather":{"station":"wx1","distance":40},
              "loaded":true,"modeSince":1799999250000,
-             "lastRun":{"mode":"cooling","startedAt":1799990000000,"endedAt":1799991800000}},
+             "runs":[{"mode":"cooling","startedAt":1799990000000,"endedAt":1799991800000},
+                     {"mode":"heating","startedAt":1799980000000,"endedAt":1799980180000}]},
             {"key":"w:4:5:6","world":"world","x":4,"y":5,"z":6,"kind":"unit","type":"humidifier","label":"Bedroom",
              "humidity":38.0,"setpoint":50,"powered":true,"state":"running","tank":0.4,"home":"","loaded":false},
             {"key":"w:7:8:9","world":"world","x":7,"y":8,"z":9,"kind":"unit","type":"refrigerator","label":"Kitchen",

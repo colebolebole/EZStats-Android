@@ -2,12 +2,13 @@ package com.ezstats.android.ui
 
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.ForecastDay
-import com.ezstats.android.data.LastRun
+import com.ezstats.android.data.Run
 import com.ezstats.android.data.Station
 import com.ezstats.android.data.Wind
 import com.ezstats.android.ui.common.UnitFmt
 import com.ezstats.android.ui.common.clockText
 import com.ezstats.android.ui.common.modeLine
+import com.ezstats.android.ui.common.runText
 import com.ezstats.android.ui.common.spanText
 import com.ezstats.android.ui.common.rubberBand
 import com.ezstats.android.ui.weather.Sky
@@ -99,21 +100,23 @@ class UiLogicTest {
     }
 
     @Test
-    fun aThermostatSaysHowLongItHasBeenRunningAndItsLastRun() {
+    fun aThermostatSaysHowLongItHasBeenRunningAndLogsItsRuns() {
         val zone = java.time.ZoneId.of("UTC")
         val at = { h: Int, m: Int -> java.time.LocalDateTime.of(2026, 11, 16, h, m).toInstant(java.time.ZoneOffset.UTC).toEpochMilli() }
         val now = java.time.Instant.ofEpochMilli(at(15, 0))
         val base = Device(key = "t", world = "w", x = 0, y = 0, z = 0, kind = "thermostat", type = "room", label = "", nickname = null, home = "", system = null)
         // Nothing from an older EZvac: no line at all.
-        assertNull(modeLine(base, now, zone))
-        val running = base.copy(enabled = true, mode = "cooling", modeMinutes = 12, lastRun = LastRun("heating", at(14, 2), at(14, 20)))
-        val line = modeLine(running, now, zone)!!
-        assertTrue(line.startsWith("Cooling for 12 min · Last heated "))
-        assertTrue(line.contains(" to "))
-        // Switched off: only the last run is worth saying.
-        assertTrue(modeLine(running.copy(enabled = false), now, zone)!!.startsWith("Last heated"))
-        assertEquals("Heating for under a minute", modeLine(base.copy(enabled = true, mode = "heating", modeMinutes = 0), now, zone))
-        // A run from another day carries its date.
+        assertNull(modeLine(base))
+        val running = base.copy(enabled = true, mode = "cooling", modeMinutes = 12)
+        assertEquals("Cooling for 12 min", modeLine(running))
+        assertNull(modeLine(running.copy(enabled = false))) // switched off: nothing is counting
+        assertEquals("Heating for under a minute", modeLine(base.copy(enabled = true, mode = "heating", modeMinutes = 0)))
+        // A log line says how long the run was and when it stopped, with the date when that wasn't today.
+        val tz = java.time.format.DateTimeFormatter.ofLocalizedTime(java.time.format.FormatStyle.SHORT)
+        fun time(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(zone).format(tz)
+        assertEquals("Heated for 3 min · ${time(at(14, 20))}", runText(Run("heating", at(14, 17), at(14, 20)), now, zone))
+        assertEquals("Cooled for 1 h 5 min · ${time(at(13, 5))}", runText(Run("cooling", at(12, 0), at(13, 5)), now, zone))
+        assertTrue(runText(Run("cooling", at(9, 0) - 86_400_000L, at(9, 30) - 86_400_000L), now, zone).endsWith("Nov 15 ${time(at(9, 30) - 86_400_000L)}"))
         assertTrue(clockText(at(9, 5) - 24 * 3_600_000L, now, zone).startsWith("Nov 15"))
     }
 

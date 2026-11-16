@@ -215,19 +215,20 @@ fun clockText(
     else at.format(java.time.format.DateTimeFormatter.ofPattern("MMM d")) + " " + at.format(time)
 }
 
-/**
- * "Cooling for 12 min · Last heated 14:02 to 14:20": how long it has been in its mode and its last finished run.
- * Null when EZvac doesn't say (before Pilot 8).
- */
-fun modeLine(d: Device, now: java.time.Instant = java.time.Instant.now(), zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String? {
-    val parts = mutableListOf<String>()
-    val minutes = d.modeMinutes
-    if (d.enabled && minutes != null) {
-        val word = when (d.mode) { "heating" -> "Heating"; "cooling" -> "Cooling"; "idle" -> "Idle"; else -> cap(d.mode) }
-        parts += "$word for ${spanText(minutes)}"
-    }
-    d.lastRun?.let { r ->
-        parts += "Last ${if (r.mode == "heating") "heated" else "cooled"} ${clockText(r.startedAt, now, zone)} to ${clockText(r.endedAt, now, zone)}"
-    }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+/** "Cooling for 12 min": how long it has been in its mode. Null when it is off or EZvac doesn't say (before Pilot 8). */
+fun modeLine(d: Device): String? {
+    val minutes = d.modeMinutes ?: return null
+    if (!d.enabled) return null
+    val word = when (d.mode) { "heating" -> "Heating"; "cooling" -> "Cooling"; "idle" -> "Idle"; else -> cap(d.mode) }
+    return "$word for ${spanText(minutes)}"
+}
+
+/** One line of a thermostat's log: "Heated for 3 min · 11:44 PM", how long it ran and when it stopped. */
+fun runText(
+    r: com.ezstats.android.data.Run,
+    now: java.time.Instant = java.time.Instant.now(),
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+): String {
+    val word = if (r.mode == "heating") "Heated" else "Cooled"
+    return "$word for ${spanText(maxOf(0L, r.endedAt - r.startedAt) / 60_000)} · ${clockText(r.endedAt, now, zone)}"
 }

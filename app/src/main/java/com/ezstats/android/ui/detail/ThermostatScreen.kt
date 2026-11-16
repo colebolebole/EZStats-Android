@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AssistChip
@@ -49,6 +51,7 @@ import com.ezstats.android.data.Station
 import androidx.compose.ui.text.style.TextAlign
 import com.ezstats.android.ui.common.ATTENTION
 import com.ezstats.android.ui.common.modeLine
+import com.ezstats.android.ui.common.runText
 import com.ezstats.android.ui.common.Fact
 import com.ezstats.android.ui.common.LocalUnits
 import com.ezstats.android.ui.common.LocalWritable
@@ -93,6 +96,7 @@ internal fun ThermostatScreen(vm: EzViewModel, d: Device, state: StateData, snac
         }
         ThermostatControls(vm, d)
         ThermostatFacts(vm, d)
+        RunLog(d)
         val station = d.weather?.let { state.stations[it.station] }
         OutsideCard(d, station, onOpen = station?.let { s -> { onClose(); vm.openStation(s.key) } })
         Spacer(Modifier.height(24.dp))
@@ -202,6 +206,35 @@ private fun ThermostatFacts(vm: EzViewModel, d: Device) {
             Text("Profile", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ConnectedChoice(listOf("eco", "normal", "turbo"), d.profile) { name ->
                 vm.control(d.key, "profile", name) { it.copy(profile = name) }
+            }
+        }
+    }
+}
+
+/**
+ * The thermostat's log: its last finished heating and cooling runs, newest first ("Heated for 3 min · 11:44 PM").
+ * Not shown when the server is too old (before EZStats 0.7.3) to keep one.
+ */
+@Composable
+private fun RunLog(d: Device) {
+    val runs = d.runs ?: return
+    DetailCard {
+        Text("Log", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (runs.isEmpty()) {
+            Text("No heating or cooling runs recorded yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            runs.forEach { r ->
+                val heating = r.mode == "heating"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (heating) Icons.Rounded.LocalFireDepartment else Icons.Rounded.AcUnit,
+                        null,
+                        Modifier.size(18.dp),
+                        tint = if (heating) HeatColor else CoolColor,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(runText(r), style = MaterialTheme.typography.bodyLarge.numeric)
+                }
             }
         }
     }
