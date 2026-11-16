@@ -68,6 +68,25 @@ class ServerStore(context: Context) {
     fun deleteSnapshot(id: String) {
         try {
             snapshotFile(id).delete()
+            weatherFile(id).delete()
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun weatherFile(id: String) = java.io.File(appContext.filesDir, "weather-$id.json")
+
+    fun readWeatherSnapshot(id: String): String? = try {
+        weatherFile(id).takeIf { it.isFile }?.readText()
+    } catch (e: Exception) {
+        null
+    }
+
+    fun writeWeatherSnapshot(id: String, json: String) {
+        try {
+            val file = weatherFile(id)
+            val tmp = java.io.File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(json)
+            tmp.renameTo(file)
         } catch (e: Exception) {
         }
     }

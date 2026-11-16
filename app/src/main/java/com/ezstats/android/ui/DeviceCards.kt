@@ -57,7 +57,11 @@ import kotlin.math.roundToInt
 /** A device's card on the dashboard: a thermostat opens full screen when tapped. */
 @Composable
 fun DeviceCard(vm: EzViewModel, d: Device, homes: List<Home>, station: Station?) {
-    if (d.isThermostat) ThermostatTile(vm, d, homes, station) else DeviceTile(vm, d, homes)
+    when {
+        d.isThermostat -> ThermostatTile(vm, d, homes, station)
+        d.kind == "unit" && d.type in FRIDGES -> FridgeTile(vm, d, homes)
+        else -> DeviceTile(vm, d, homes)
+    }
 }
 
 // --- the frame every device shares ----------------------------------------------------------------------
@@ -289,7 +293,6 @@ private fun UnitBody(vm: EzViewModel, d: Device, units: UnitFmt, writable: Boole
             }
         }
 
-        d.type in FRIDGES -> FridgeBody(vm, d, units, writable, facts)
     }
 
     if (facts.isNotEmpty()) {
@@ -321,46 +324,6 @@ private fun UnitBody(vm: EzViewModel, d: Device, units: UnitFmt, writable: Boole
             }
         }
     }
-}
-
-@Composable
-private fun FridgeBody(vm: EzViewModel, d: Device, units: UnitFmt, writable: Boolean, facts: MutableList<Pair<String, String>>) {
-    val cold = d.cold
-
-    @Composable
-    fun compartment(name: String, insideF: Double?, setpointF: Int?, action: String, update: (Device, Int) -> Device) {
-        if (insideF != null) Readout(units.whole(insideF) + units.symbol, "$name inside")
-        if (setpointF == null) return
-        if (writable) {
-            Stepper(
-                "$name target", setpointF,
-                format = { units.wholeF(it) },
-                step = { v, dir -> units.stepF(v, dir) },
-                onSend = { v -> vm.control(d.key, action, v) { update(it, v) } },
-            )
-        } else {
-            facts += "$name target" to units.wholeF(setpointF)
-        }
-    }
-
-    if (d.type == "refrigerator") {
-        compartment("Fridge", cold?.fridgeInsideF, cold?.fridgeSetpointF, "fridge-setpoint") { dev, v ->
-            dev.copy(cold = dev.cold?.copy(fridgeSetpointF = v))
-        }
-        compartment("Freezer", d.insideF, d.setpoint, "setpoint") { dev, v -> dev.copy(setpoint = v) }
-    } else {
-        compartment("Inside", d.insideF, d.setpoint, "setpoint") { dev, v -> dev.copy(setpoint = v) }
-        if (d.type == "mini_fridge" && cold?.chillerF != null) facts += "Chiller" to (units.whole(cold.chillerF) + units.symbol)
-    }
-    if (cold?.doorOpen == true) {
-        AssistChip(
-            onClick = {},
-            label = { Text("Door open") },
-            leadingIcon = { Icon(Icons.Rounded.Warning, null, Modifier.size(AssistChipDefaults.IconSize)) },
-        )
-    }
-    cold?.frost?.let { Meter("Frost", it, 0.7) }
-    if (cold?.defrosting == true) facts += "Status" to "Defrosting"
 }
 
 @Composable

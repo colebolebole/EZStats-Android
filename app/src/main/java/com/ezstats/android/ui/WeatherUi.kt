@@ -1,6 +1,5 @@
 package com.ezstats.android.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,23 +23,20 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material.icons.rounded.WbSunny
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,10 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.ezstats.android.DetailKind
+import com.ezstats.android.DetailRef
 import com.ezstats.android.EzViewModel
 import com.ezstats.android.ForecastDay
 import com.ezstats.android.Station
 import com.ezstats.android.Wind
+import com.ezstats.android.WeatherData
 import kotlin.math.roundToInt
 
 fun skyIcon(sky: String): ImageVector = when (sky) {
@@ -133,7 +132,7 @@ fun ForecastList(station: Station) {
 
 /** The seven days side by side. */
 @Composable
-private fun ForecastStrip(days: List<ForecastDay>) {
+fun ForecastStrip(days: List<ForecastDay>) {
     val units = LocalUnits.current
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         days.forEach { d ->
@@ -156,7 +155,8 @@ private fun ForecastStrip(days: List<ForecastDay>) {
     }
 }
 
-private fun stationBits(s: Station, units: UnitFmt): List<String> {
+/** What a station measures right now, as short phrases. */
+fun stationBits(s: Station, units: UnitFmt): List<String> {
     val bits = mutableListOf<String>()
     s.wind?.let { w ->
         val level = WIND[w.level] ?: w.level
@@ -167,15 +167,27 @@ private fun stationBits(s: Station, units: UnitFmt): List<String> {
     return bits
 }
 
-@Composable
-private fun StationCard(station: Station, nearestFor: List<String>) {
-    val units = LocalUnits.current
-    var open by rememberSaveable(station.key) { mutableStateOf(false) }
-    val today = station.forecast.firstOrNull { it.daysAhead == 0 } ?: station.forecast.firstOrNull()
+fun idleWhy(s: Station) = when {
+    s.working -> ""
+    !s.enabled -> "Switched off by an admin."
+    !s.intact -> "Its tower is damaged: it forecasts again once it is repaired."
+    else -> "It hasn't measured the weather yet."
+}
 
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+fun idleWord(s: Station) = when {
+    !s.enabled -> "Off"
+    !s.intact -> "Damaged"
+    else -> "Waiting"
+}
+
+/** A station on the Weather tab: now, and today. Tapping it opens the full-screen view with the whole forecast. */
+@Composable
+private fun StationTile(vm: EzViewModel, station: Station, nearestFor: List<String>) {
+    val units = LocalUnits.current
+    val today = station.forecast.firstOrNull { it.daysAhead == 0 } ?: station.forecast.firstOrNull()
+    PressCard(
+        onClick = { vm.openDetail = DetailRef(DetailKind.STATION, station.key) },
+        modifier = Modifier.trackTile(vm, DetailRef(DetailKind.STATION, station.key).tileKey),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.Top) {
@@ -215,44 +227,25 @@ private fun StationCard(station: Station, nearestFor: List<String>) {
                     }
                 }
             }
-            val bits = stationBits(station, units)
-            if (bits.isNotEmpty()) {
-                Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (station.forecast.isNotEmpty()) ForecastStrip(station.forecast)
-            TextButton(onClick = { open = !open }, modifier = Modifier.align(Alignment.Start)) {
-                Text(if (open) "Hide day-by-day" else "Day-by-day details")
-                Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
-            }
-            AnimatedVisibility(open) { ForecastList(station) }
         }
     }
-}
-
-private fun idleWhy(s: Station) = when {
-    s.working -> ""
-    !s.enabled -> "Switched off by an admin."
-    !s.intact -> "Its tower is damaged: it forecasts again once it is repaired."
-    else -> "It hasn't measured the weather yet."
-}
-
-private fun idleWord(s: Station) = when {
-    !s.enabled -> "Off"
-    !s.intact -> "Damaged"
-    else -> "Waiting"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WeatherTab(vm: EzViewModel, padding: PaddingValues) {
-    val wx = vm.weather
     val state = vm.data
+    // The stations near your thermostats are already in the state, so there is something to show while the full
+    // list (every station on the server) is still on its way.
+    val loaded = vm.weather
+    val wx = loaded ?: state?.let { WeatherData(it.units, 0L, it.stations.values.toList()) }
     if (wx == null) {
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             Text("Loading the weather…", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
+    val loading = loaded == null
 
     var search by rememberSaveable { mutableStateOf("") }
     var world by rememberSaveable { mutableStateOf("") }
@@ -267,10 +260,13 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues) {
             (status == "all" || (status == "working") == it.working) &&
             (q.isEmpty() || it.label.lowercase().contains(q) || (it.world ?: "").lowercase().contains(q))
     }
-    fun nearestFor(key: String) = state?.devices
-        ?.filter { it.weather?.station == key }
-        ?.map { deviceName(it) }
-        .orEmpty()
+    // Which of your thermostats each station is nearest to, worked out once per update, not once per card.
+    val nearest = remember(state?.devices) {
+        val map = HashMap<String, MutableList<String>>()
+        state?.devices?.forEach { d -> d.weather?.let { map.getOrPut(it.station) { mutableListOf() } += deviceName(d) } }
+        map
+    }
+    fun nearestFor(key: String): List<String> = nearest[key].orEmpty()
 
     val mine = shown.filter { it.working && nearestFor(it.key).isNotEmpty() }
     val others = shown.filter { it.working && nearestFor(it.key).isEmpty() }
@@ -288,7 +284,7 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        if (all.isEmpty()) {
+        if (all.isEmpty() && !loading) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     "No weather stations on this server yet.",
@@ -303,12 +299,23 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues) {
 
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "${all.size} station${if (all.size == 1) "" else "s"} · $working forecasting" +
-                        if (all.size - working > 0) " · ${all.size - working} not forecasting" else "",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (loading) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text(
+                            "Showing the stations near you. Loading the rest…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    Text(
+                        "${all.size} station${if (all.size == 1) "" else "s"} · $working forecasting" +
+                            if (all.size - working > 0) " · ${all.size - working} not forecasting" else "",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
@@ -352,7 +359,7 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues) {
         fun section(title: String, list: List<Station>) {
             if (list.isEmpty()) return
             item(span = { GridItemSpan(maxLineSpan) }, key = "h:$title") { SectionHeader(title, list.size) }
-            items(list, key = { "s:$title:${it.key}" }) { StationCard(it, nearestFor(it.key)) }
+            items(list, key = { "s:$title:${it.key}" }) { StationTile(vm, it, nearestFor(it.key)) }
         }
 
         section("Near your thermostats", mine)
@@ -363,7 +370,11 @@ fun WeatherTab(vm: EzViewModel, padding: PaddingValues) {
         if (idle.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "h:idle") { SectionHeader("Not forecasting", idle.size) }
             items(idle, key = { "i:${it.key}" }) { s ->
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
+                PressCard(
+                    onClick = { vm.openDetail = DetailRef(DetailKind.STATION, s.key) },
+                    modifier = Modifier.trackTile(vm, DetailRef(DetailKind.STATION, s.key).tileKey),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(s.label, style = MaterialTheme.typography.titleMedium)

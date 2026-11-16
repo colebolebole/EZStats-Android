@@ -94,6 +94,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.ezstats.android.Device
+import com.ezstats.android.DetailKind
+import com.ezstats.android.DetailRef
 import com.ezstats.android.EzViewModel
 import com.ezstats.android.Home
 import com.ezstats.android.StateData
@@ -104,8 +106,8 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private val HeatColor = Color(0xFFF2711C)
-private val CoolColor = Color(0xFF3B82F6)
+internal val HeatColor = Color(0xFFF2711C)
+internal val CoolColor = Color(0xFF3B82F6)
 
 private fun targetRange(d: Device) = if (d.pool) 75.0 to 104.0 else 60.0 to 85.0
 
@@ -125,12 +127,11 @@ private fun thermostatStatus(d: Device) = if (d.enabled) cap(d.mode) else "Off"
 @Composable
 fun ThermostatTile(vm: EzViewModel, d: Device, homes: List<Home>, station: Station?) {
     val (minF, maxF) = targetRange(d)
-    DisposableEffect(d.key) { onDispose { vm.tileBounds.remove(d.key) } }
     DeviceFrame(
         vm, d, homes,
         pill = { StatusPill(thermostatStatus(d), thermostatTone(d)) },
-        onClick = { vm.openThermostat = d.key },
-        modifier = Modifier.onGloballyPositioned { vm.tileBounds[d.key] = unscaled(it.boundsInRoot(), vm) },
+        onClick = { vm.openDetail = DetailRef(DetailKind.DEVICE, d.key) },
+        modifier = Modifier.trackTile(vm, d.key),
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Dial(d, d.targetF ?: ((minF + maxF) / 2), LocalUnits.current, false, minF, maxF, {}, compact = true)
@@ -155,109 +156,12 @@ fun ThermostatTile(vm: EzViewModel, d: Device, homes: List<Home>, station: Stati
 
 // --- the full-screen view ---------------------------------------------------------------------------------
 
-/**
- * A tile's rectangle as it would be if the dashboard weren't sunk back behind the thermostat view. The dashboard
- * shrinks about the middle of the screen, and the rectangle has to be where the tile will be once it settles.
- */
-private fun unscaled(r: Rect, vm: EzViewModel): Rect {
-    val s = vm.dashboardScale()
-    val size = vm.rootSize
-    if (s == 1f || s <= 0f || size.width == 0f) return r
-    val cx = size.width / 2
-    val cy = size.height / 2
-    fun fix(o: Offset) = Offset(cx + (o.x - cx) / s, cy + (o.y - cy) / s)
-    return Rect(fix(r.topLeft), fix(r.bottomRight))
-}
-
-/** The window the full-screen view is seen through: it grows from the tile's rectangle to the whole screen. */
-private class RevealShape(private val from: Rect?, private val progress: Float, private val corner: Float) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val full = Rect(0f, 0f, size.width, size.height)
-        val start = from ?: Rect(Offset(size.width / 2 - 60f, size.height / 2 - 60f), Size(120f, 120f))
-        val r = lerp(start, full, progress)
-        val radius = lerpFloat(corner, 0f, progress).coerceAtLeast(0f) // a spring can overshoot past full screen
-        return Outline.Rounded(RoundRect(r, CornerRadius(radius, radius)))
-    }
-}
-
-/**
- * The full-screen thermostat on top of the dashboard. It grows out of the tile that was tapped and shrinks back
- * into it, so the dashboard underneath stays exactly where it was. The back gesture drags it back toward its tile.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ThermostatOverlay(
-    vm: EzViewModel,
-    key: String,
-    state: StateData,
-    snackbar: SnackbarHostState,
-    expand: Animatable<Float, AnimationVector1D>, // 0 = the tile, 1 = the whole screen; shared with the dashboard
-) {
-    val scope = rememberCoroutineScope()
-    val gesture = remember(key) { Animatable(0f) } // how far the back gesture has been dragged
-    var closing by remember(key) { mutableStateOf(false) }
-    val card = MaterialTheme.colorScheme.surfaceContainerLow
-    val page = MaterialTheme.colorScheme.background
-
-    LaunchedEffect(key) { expand.animateTo(1f, Motion.open) }
-
-    suspend fun close() {
-        if (closing) return
-        closing = true
-        // The thermostat may have been moved to another home: bring its tile into view (unseen, under this
-        // screen) so the shrink lands on it.
-        vm.revealTile?.invoke(key)
-        expand.animateTo(0f, Motion.close)
-        vm.openThermostat = null
-    }
-
-    PredictiveBackHandler(enabled = !closing) { progress ->
-        try {
-            progress.collect { event ->
-                gesture.snapTo(event.progress)
-                expand.snapTo(1f - 0.3f * event.progress)
-            }
-            scope.launch { gesture.animateTo(0f, Motion.close) }
-            close()
-        } catch (e: CancellationException) {
-            scope.launch { gesture.animateTo(0f, Motion.settle) }
-            expand.animateTo(1f, Motion.settle)
-        }
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                val g = gesture.value
-                scaleX = 1f - 0.06f * g
-                scaleY = 1f - 0.06f * g
-                shape = RevealShape(vm.tileBounds[key], expand.value, 28.dp.toPx())
-                clip = true
-            }
-            .drawBehind { drawRect(lerpColor(card, page, expand.value.coerceIn(0f, 1f))) }
-            .pointerInput(Unit) {}, // the dashboard underneath must not receive touches
-    ) {
-        Box(
-            Modifier.fillMaxSize().graphicsLayer {
-                // The content arrives a beat after the window starts growing, rising into place as it fades in.
-                val e = expand.value.coerceIn(0f, 1f)
-                val t = ((e - 0.25f) / 0.6f).coerceIn(0f, 1f)
-                alpha = t * t * (3f - 2f * t)
-                translationY = (1f - t) * 28.dp.toPx()
-            },
-        ) {
-            ThermostatScreen(vm, key, state, snackbar, onClose = { scope.launch { close() } })
-        }
-    }
-}
-
 /** One thermostat filling the screen, tinted by what it is doing. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ThermostatScreen(vm: EzViewModel, key: String, state: StateData, snackbar: SnackbarHostState, onClose: () -> Unit) {
+internal fun ThermostatScreen(vm: EzViewModel, key: String, state: StateData, snackbar: SnackbarHostState, onClose: () -> Unit) {
     val d = state.devices.firstOrNull { it.key == key && it.isThermostat }
-    LaunchedEffect(d == null) { if (d == null) vm.openThermostat = null }
+    LaunchedEffect(d == null) { if (d == null) vm.openDetail = null }
     if (d == null) return
 
     val tint by animateColorAsState(

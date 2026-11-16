@@ -1,5 +1,6 @@
 package com.ezstats.android.ui
 
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -138,6 +140,59 @@ fun Stepper(
         )
         FilledTonalIconButton(onClick = { local = step(local, 1); dirty = true }, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Rounded.Add, contentDescription = "Raise $name")
+        }
+    }
+}
+
+/** A tappable card that sinks a little under the finger and springs back, in the app's card colour. */
+@Composable
+fun PressCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val press by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.97f else 1f, Motion.quick, label = "press")
+    androidx.compose.material3.Card(
+        onClick = onClick,
+        // The caller's modifier comes first, so whatever measures the card sees it unpressed.
+        modifier = modifier.graphicsLayer { scaleX = press; scaleY = press },
+        shape = shape,
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        interactionSource = interaction,
+        content = content,
+    )
+}
+
+/** The same as [Stepper], large: for a full-screen view where the target is the point. */
+@Composable
+fun BigStepper(
+    name: String,
+    serverValue: Int,
+    format: (Int) -> String,
+    step: (Int, Int) -> Int,
+    onSend: (Int) -> Unit,
+) {
+    var local by remember(serverValue) { mutableIntStateOf(serverValue) }
+    var dirty by remember(serverValue) { mutableStateOf(false) }
+    LaunchedEffect(local, dirty) {
+        if (dirty) {
+            delay(450)
+            onSend(local)
+        }
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        FilledTonalIconButton(onClick = { local = step(local, -1); dirty = true }, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.Remove, contentDescription = "Lower the $name", modifier = Modifier.size(28.dp))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(format(local), style = MaterialTheme.typography.headlineLarge)
+            Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        FilledTonalIconButton(onClick = { local = step(local, 1); dirty = true }, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.Add, contentDescription = "Raise the $name", modifier = Modifier.size(28.dp))
         }
     }
 }

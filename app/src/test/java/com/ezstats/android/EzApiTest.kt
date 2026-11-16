@@ -284,6 +284,20 @@ class EzApiTest {
     }
 
     @Test
+    fun weatherKeepsUnchangedStationsBetweenReads() = runBlocking {
+        sessions += "abc123"
+        val a = api("abc123")
+        val first = a.weatherResult()
+        assertTrue(first.raw.contains("\"stations\""))
+        val again = a.weather()
+        assertTrue("an identical read reuses the old data", again.shareWith(first.data) === first.data)
+        val warmer = first.data.copy(stations = first.data.stations.map { it.copy(outdoorF = 90.0) })
+        val shared = warmer.shareWith(first.data)
+        assertEquals(90.0, shared.stations[0].outdoorF!!, 0.0)
+        assertTrue(shared.stations !== first.data.stations)
+    }
+
+    @Test
     fun urlNormalising() {
         assertEquals("http://192.168.1.10:8765", ServerStore.normalizeUrl(" 192.168.1.10:8765/ "))
         assertEquals("https://stats.example.com", ServerStore.normalizeUrl("https://stats.example.com/"))

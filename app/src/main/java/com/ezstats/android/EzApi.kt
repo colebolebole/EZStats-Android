@@ -141,16 +141,20 @@ class EzApi(
 
     suspend fun state(): StateData = stateResult().data
 
-    suspend fun weather(): WeatherData {
+    class WeatherResult(val data: WeatherData, val raw: String)
+
+    suspend fun weatherResult(): WeatherResult {
         val r = checked(request("GET", "/api/weather"))
         return withContext(Dispatchers.Default) {
             try {
-                parseWeather(r.body)
+                WeatherResult(parseWeather(r.body), r.body)
             } catch (e: Exception) {
                 throw ApiException(500, "The server sent weather this app can't read.")
             }
         }
     }
+
+    suspend fun weather(): WeatherData = weatherResult().data
 
     // --- changes ------------------------------------------------------------------------------------
 

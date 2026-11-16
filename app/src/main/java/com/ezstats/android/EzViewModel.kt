@@ -16,6 +16,14 @@ enum class Status { CHECKING, OFFLINE, LOGIN, READY }
 
 enum class Tab { DEVICES, WEATHER }
 
+enum class DetailKind { DEVICE, STATION }
+
+/** Which thing is open full screen: a device (thermostat, fridge…) or a weather station. */
+data class DetailRef(val kind: DetailKind, val key: String) {
+    /** The key its tile's position is filed under, so a station and a device can never be mixed up. */
+    val tileKey get() = if (kind == DetailKind.STATION) "station:$key" else key
+}
+
 class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = ServerStore(app)
@@ -37,10 +45,10 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     var tab by mutableStateOf(Tab.DEVICES)
 
-    /** The key of the thermostat shown full screen, or null for the dashboard. */
-    var openThermostat by mutableStateOf<String?>(null)
+    /** The device or weather station shown full screen, or null for the dashboard. */
+    var openDetail by mutableStateOf<DetailRef?>(null)
 
-    /** Where each thermostat tile is on screen, so the full-screen view can grow from and shrink back to it. */
+    /** Where each tile is on screen (by [DetailRef.tileKey]), so the full-screen view can grow from and shrink back to it. */
     val tileBounds = HashMap<String, androidx.compose.ui.geometry.Rect>()
 
     /** The dashboard sets this: scrolls (and unfolds its home) so a thermostat's tile is on screen. */
@@ -84,11 +92,19 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 return@launch
             }
+            val cachedWeather = store.readWeatherSnapshot(server.id)?.let {
+                try {
+                    parseWeather(it)
+                } catch (e: Exception) {
+                    null
+                }
+            }
             withContext(Dispatchers.Main) {
                 if (active == server && data == null && status == Status.CHECKING) {
                     data = cached
                     status = Status.READY
                 }
+                if (active == server && weather == null && cachedWeather != null) weather = cachedWeather
             }
         }
     }
@@ -100,6 +116,17 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         if (!force && now - lastSnapshot < 10_000) return
         lastSnapshot = now
         viewModelScope.launch(Dispatchers.IO) { store.writeSnapshot(server.id, raw) }
+    }
+
+    private var lastWeatherSnapshot = 0L
+
+    /** The same for the weather, at most every thirty seconds. */
+    private fun saveWeatherSnapshot(server: Server?, raw: String) {
+        if (server == null) return
+        val now = System.currentTimeMillis()
+        if (now - lastWeatherSnapshot < 30_000) return
+        lastWeatherSnapshot = now
+        viewModelScope.launch(Dispatchers.IO) { store.writeWeatherSnapshot(server.id, raw) }
     }
 
     private fun forgetSnapshot() {
@@ -120,7 +147,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         loginError = null
         statusError = null
         tab = Tab.DEVICES
-        openThermostat = null
+        openDetail = null
         inFlight.clear()
     }
 
@@ -255,18 +282,25 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- polling ------------------------------------------------------------------------------------
 
-    /** Keeps the screen current while it is visible: devices every 2 s, the weather tab every 10 s. */
+    /** Keeps the devices current while the screen is visible: every 2 seconds. */
     suspend fun pollLoop() {
-        var lastWeather = 0L
         while (true) {
             refreshState()
-            val now = System.currentTimeMillis()
-            if (tab == Tab.WEATHER && data?.weatherTab == true && now - lastWeather > 10_000) {
-                refreshWeather()
-                lastWeather = now
-            }
             delay(2_000)
         }
+    }
+
+    /** Keeps the weather current while the Weather tab is showing: it starts at once, then every 10 seconds. */
+    suspend fun weatherLoop() {
+        while (true) {
+            refreshWeather()
+            delay(10_000)
+        }
+    }
+
+    /** Loads the weather once, as soon as the dashboard is up, so the Weather tab opens with everything ready. */
+    suspend fun prefetchWeather() {
+        if (weather == null && data?.weatherTab == true) refreshWeather()
     }
 
     suspend fun refreshState() {
@@ -294,8 +328,10 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         val a = api ?: return
         val server = active
         try {
-            val fresh = a.weather()
-            if (active == server) weather = fresh
+            val fresh = a.weatherResult()
+            if (active != server) return
+            weather = fresh.data.shareWith(weather)
+            saveWeatherSnapshot(server, fresh.raw)
         } catch (e: ApiException) {
             if (active != server) return
             if (e.status == 401) sessionEnded() else if (e.status != 404) banner = e.message

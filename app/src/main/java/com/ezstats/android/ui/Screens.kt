@@ -497,9 +497,17 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
     val expand = remember { Animatable(0f) }
     val gridState = rememberLazyGridState()
     SideEffect { vm.dashboardScale = { 1f - DEPTH * expand.value.coerceIn(0f, 1f) } }
-    LaunchedEffect(vm.openThermostat) {
-        // If the thermostat view vanished without closing (its device went away), settle the dashboard back.
-        if (vm.openThermostat == null && expand.value != 0f) expand.animateTo(0f, Motion.close)
+    LaunchedEffect(vm.openDetail) {
+        // If the full-screen view vanished without closing (its device went away), settle the dashboard back.
+        if (vm.openDetail == null && expand.value != 0f) expand.animateTo(0f, Motion.close)
+    }
+
+    // The weather: load it once as soon as the dashboard is up, so the tab opens ready, and keep it fresh while the tab is showing.
+    LaunchedEffect(vm.active?.id, showWeather) {
+        if (showWeather) owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { vm.prefetchWeather() }
+    }
+    LaunchedEffect(vm.active?.id, showWeather, vm.tab) {
+        if (showWeather && vm.tab == Tab.WEATHER) owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { vm.weatherLoop() }
     }
 
     CompositionLocalProvider(
@@ -593,7 +601,7 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
             }
         }
         }
-        vm.openThermostat?.let { key -> ThermostatOverlay(vm, key, state, snackbar, expand) }
+        vm.openDetail?.let { ref -> DetailOverlay(vm, ref, state, snackbar, expand) }
         }
     }
 }

@@ -328,3 +328,11 @@ fun StateData.shareWith(old: StateData?): StateData {
         stations = if (sharedStations == oldStations) oldStations else sharedStations,
     )
 }
+
+/** The same idea for the weather: stations that haven't changed since the last read keep their old objects. */
+fun WeatherData.shareWith(old: WeatherData?): WeatherData {
+    if (old == null) return this
+    if (this == old) return old
+    val oldByKey = old.stations.associateBy { it.key }
+    return copy(stations = stations.map { s -> oldByKey[s.key]?.takeIf { it == s } ?: s }.reuse(old.stations))
+}
