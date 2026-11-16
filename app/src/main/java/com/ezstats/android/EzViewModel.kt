@@ -18,6 +18,7 @@ import com.ezstats.android.data.ServerStore
 import com.ezstats.android.data.StateData
 import com.ezstats.android.data.WeatherData
 import com.ezstats.android.data.parseState
+import com.ezstats.android.data.seasonSignature
 import com.ezstats.android.data.parseWeather
 import com.ezstats.android.data.shareWith
 import kotlinx.coroutines.Dispatchers
@@ -94,6 +95,12 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     /** The JSON behind [data] and [weather]: a poll that brings back exactly the same text is skipped. */
     private var lastStateRaw: String? = null
     private var lastWeatherRaw: String? = null
+
+    /** A summary of every world's season and day, to notice when it changes. */
+    private var seasonSignature: String? = null
+
+    /** After a season (or season day) changes, the weather is re-read often until this time. */
+    private var weatherBurstUntil = 0L
 
     init {
         if (active != null) {
@@ -175,6 +182,8 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         weather = null
         lastStateRaw = null
         lastWeatherRaw = null
+        seasonSignature = null
+        weatherBurstUntil = 0L
         banner = null
         loginError = null
         statusError = null
@@ -322,15 +331,31 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun pollLoop() {
         while (true) {
             refreshState()
-            delay(settings.refreshSeconds * 1_000L)
+            val bursting = data?.weatherTab == true && System.currentTimeMillis() < weatherBurstUntil
+            if (bursting) refreshWeather()
+            delay(if (bursting) minOf(settings.refreshSeconds, 2) * 1_000L else settings.refreshSeconds * 1_000L)
         }
     }
 
-    /** Keeps the weather current while the Weather tab is showing: it starts at once, then every 10 seconds. */
+    /**
+     * The season is in the dashboard state, which is read every couple of seconds, but the forecast comes from the
+     * weather, which would otherwise only be read every few seconds on its own tab. When the season or its day
+     * changes the forecasts change with it, so read the weather right away and keep reading it for a while: it
+     * shows up as soon as the server has it, instead of whenever the next scheduled read happens to land.
+     */
+    private fun noteSeason(next: StateData) {
+        val signature = next.seasonSignature()
+        if (seasonSignature != null && signature != seasonSignature && next.weatherTab) {
+            weatherBurstUntil = System.currentTimeMillis() + 40_000
+        }
+        seasonSignature = signature
+    }
+
+    /** Keeps the weather current while the Weather tab is showing: it starts at once, then every 5 seconds. */
     suspend fun weatherLoop() {
         while (true) {
             refreshWeather()
-            delay(10_000)
+            delay(5_000)
         }
     }
 
@@ -357,6 +382,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
             }
             // Same objects wherever nothing changed, so the screen only redraws what actually did.
             data = next.shareWith(data)
+            noteSeason(next)
             saveSnapshot(server, result.raw)
         } catch (e: ApiException) {
             if (active != server) return

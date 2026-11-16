@@ -30,6 +30,15 @@ class EzApi(
     }
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null): Response =
+        try {
+            send(method, path, body)
+        } catch (e: ApiException) {
+            // A read-only call that failed to connect, stalled or was cut (often a pooled connection the network quietly
+            // dropped) is tried once more on a fresh connection, instead of failing the whole poll.
+            if (method == "GET" && e.status == 0) send(method, path, body) else throw e
+        }
+
+    private suspend fun send(method: String, path: String, body: JSONObject?): Response =
         withContext(Dispatchers.IO) {
             val conn = try {
                 (URL(baseUrl + path).openConnection() as HttpURLConnection)
@@ -39,7 +48,7 @@ class EzApi(
             try {
                 conn.requestMethod = method
                 conn.connectTimeout = 6_000
-                conn.readTimeout = 15_000 // a control call can wait up to 5 s on the server
+                conn.readTimeout = if (method == "GET") 8_000 else 15_000 // a control call can wait up to 5 s on the server
                 conn.instanceFollowRedirects = false
                 conn.setRequestProperty("Accept", "application/json")
                 conn.setRequestProperty("X-EZStats", "1") // the server insists on this for anything that changes data

@@ -195,3 +195,10 @@ fun WeatherData.shareWith(old: WeatherData?): WeatherData {
     val oldByKey = old.stations.associateBy { it.key }
     return copy(stations = stations.map { s -> oldByKey[s.key]?.takeIf { it == s } ?: s }.reuse(old.stations))
 }
+
+/**
+ * A summary of every world's season and the day of it. It changes when someone sets the season in game (or a new
+ * season day starts), and not when only the temperature outside does, so the app can tell when forecasts will have
+ * been recalculated.
+ */
+fun StateData.seasonSignature(): String = worlds.joinToString("|") { "${it.name}:${it.season}:${it.seasonDay}" }

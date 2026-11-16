@@ -310,6 +310,19 @@ class EzApiTest {
     }
 
     @Test
+    fun settingTheSeasonChangesTheSignatureButTheTemperatureDoesNot() = runBlocking {
+        sessions += "abc123"
+        val s = api("abc123").state()
+        val world = s.worlds.single()
+        assertEquals("world:summer:3", s.seasonSignature())
+        // It warms up outside: not a season change.
+        assertEquals(s.seasonSignature(), s.copy(worlds = listOf(world.copy(airF = 99.0, weather = "Rain"))).seasonSignature())
+        // Someone sets the season in game, or a new season day starts.
+        assertTrue(s.seasonSignature() != s.copy(worlds = listOf(world.copy(season = "winter"))).seasonSignature())
+        assertTrue(s.seasonSignature() != s.copy(worlds = listOf(world.copy(seasonDay = 4))).seasonSignature())
+    }
+
+    @Test
     fun urlNormalising() {
         assertEquals("http://192.168.1.10:8765", ServerStore.normalizeUrl(" 192.168.1.10:8765/ "))
         assertEquals("https://stats.example.com", ServerStore.normalizeUrl("https://stats.example.com/"))
