@@ -67,7 +67,11 @@ fun parseWeather(json: String): WeatherData {
 
 // --- devices ------------------------------------------------------------------------------------------
 
-private fun parseDevice(o: JSONObject): Device {
+private fun parseDevice(o: JSONObject, generatedAt: Long): Device {
+    val modeSince = if (o.has("modeSince") && !o.isNull("modeSince")) o.optLong("modeSince") else null
+    val lastRun = o.optJSONObject("lastRun")?.let {
+        if (it.has("startedAt") && it.has("endedAt")) LastRun(it.optString("mode"), it.optLong("startedAt"), it.optLong("endedAt")) else null
+    }
     val cold = o.optJSONObject("cold")?.let {
         Cold(
             doorOpen = it.flag("doorOpen"),
@@ -103,6 +107,8 @@ private fun parseDevice(o: JSONObject): Device {
         nickname = o.strOrNull("nickname")?.takeIf { it.isNotBlank() },
         home = o.optString("home"),
         system = o.strOrNull("system")?.takeIf { it.isNotBlank() },
+        modeMinutes = if (modeSince != null && generatedAt > 0) maxOf(0L, generatedAt - modeSince) / 60_000 else null,
+        lastRun = lastRun,
         roomF = o.dbl("roomF"),
         targetF = o.dbl("targetF"),
         mode = o.optString("mode", "idle"),
@@ -147,7 +153,7 @@ fun parseState(json: String): StateData {
         writable = s.flag("writable"),
         readOnlyReason = s.strOrNull("readOnlyReason"),
         homes = s.optJSONArray("homes").objects().map { Home(it.optString("id"), it.optString("name")) },
-        devices = s.optJSONArray("devices").objects().map(::parseDevice),
+        devices = s.optJSONArray("devices").objects().map { parseDevice(it, s.optLong("generatedAt")) },
         worlds = s.optJSONArray("worlds").objects().map { w ->
             val season = w.optJSONObject("season")
             val outdoor = w.optJSONObject("outdoor")

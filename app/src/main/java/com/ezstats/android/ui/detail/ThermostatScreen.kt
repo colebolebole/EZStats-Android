@@ -46,7 +46,9 @@ import com.ezstats.android.EzViewModel
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.StateData
 import com.ezstats.android.data.Station
+import androidx.compose.ui.text.style.TextAlign
 import com.ezstats.android.ui.common.ATTENTION
+import com.ezstats.android.ui.common.modeLine
 import com.ezstats.android.ui.common.Fact
 import com.ezstats.android.ui.common.LocalUnits
 import com.ezstats.android.ui.common.LocalWritable
@@ -86,6 +88,9 @@ internal fun ThermostatScreen(vm: EzViewModel, d: Device, state: StateData, snac
         actions = { DeviceMenuButton(vm, d, state.homes) },
     ) {
         StatusPill(deviceStatus(d), deviceTone(d))
+        modeLine(d)?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
         ThermostatControls(vm, d)
         ThermostatFacts(vm, d)
         val station = d.weather?.let { state.stations[it.station] }

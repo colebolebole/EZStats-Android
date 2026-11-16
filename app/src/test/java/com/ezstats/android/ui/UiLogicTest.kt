@@ -2,9 +2,13 @@ package com.ezstats.android.ui
 
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.ForecastDay
+import com.ezstats.android.data.LastRun
 import com.ezstats.android.data.Station
 import com.ezstats.android.data.Wind
 import com.ezstats.android.ui.common.UnitFmt
+import com.ezstats.android.ui.common.clockText
+import com.ezstats.android.ui.common.modeLine
+import com.ezstats.android.ui.common.spanText
 import com.ezstats.android.ui.common.rubberBand
 import com.ezstats.android.ui.weather.Sky
 import com.ezstats.android.ui.weather.compassDegrees
@@ -84,6 +88,33 @@ class UiLogicTest {
         // A flat week still gets a bar to draw on.
         val flat = listOf(ForecastDay(0, 60.0, 60.0, "clear", 0.0, 0.0, "", null, null))
         assertEquals(59.0 to 61.0, forecastRange(flat))
+    }
+
+    @Test
+    fun spansReadLikeTheWebsite() {
+        assertEquals("under a minute", spanText(0))
+        assertEquals("12 min", spanText(12))
+        assertEquals("2 h 5 min", spanText(125))
+        assertEquals("1 d 3 h", spanText(27 * 60 + 40))
+    }
+
+    @Test
+    fun aThermostatSaysHowLongItHasBeenRunningAndItsLastRun() {
+        val zone = java.time.ZoneId.of("UTC")
+        val at = { h: Int, m: Int -> java.time.LocalDateTime.of(2026, 11, 16, h, m).toInstant(java.time.ZoneOffset.UTC).toEpochMilli() }
+        val now = java.time.Instant.ofEpochMilli(at(15, 0))
+        val base = Device(key = "t", world = "w", x = 0, y = 0, z = 0, kind = "thermostat", type = "room", label = "", nickname = null, home = "", system = null)
+        // Nothing from an older EZvac: no line at all.
+        assertNull(modeLine(base, now, zone))
+        val running = base.copy(enabled = true, mode = "cooling", modeMinutes = 12, lastRun = LastRun("heating", at(14, 2), at(14, 20)))
+        val line = modeLine(running, now, zone)!!
+        assertTrue(line.startsWith("Cooling for 12 min · Last heated "))
+        assertTrue(line.contains(" to "))
+        // Switched off: only the last run is worth saying.
+        assertTrue(modeLine(running.copy(enabled = false), now, zone)!!.startsWith("Last heated"))
+        assertEquals("Heating for under a minute", modeLine(base.copy(enabled = true, mode = "heating", modeMinutes = 0), now, zone))
+        // A run from another day carries its date.
+        assertTrue(clockText(at(9, 5) - 24 * 3_600_000L, now, zone).startsWith("Nov 15"))
     }
 
     @Test

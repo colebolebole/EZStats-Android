@@ -289,6 +289,19 @@ class EzApiTest {
     }
 
     @Test
+    fun pilot8FieldsAreReadAndAbsentOnesStayNull() = runBlocking {
+        sessions += "abc123"
+        val s = api("abc123").state()
+        val t = s.devices.first { it.isThermostat }
+        // Heating since 750 s before the server's read: 12 whole minutes, worked out on the server's own clock.
+        assertEquals(12L, t.modeMinutes)
+        assertEquals(LastRun("cooling", 1799990000000, 1799991800000), t.lastRun)
+        // An older EZvac leaves all of it out.
+        val f = s.devices.first { it.type == "refrigerator" }
+        assertNull(f.modeMinutes); assertNull(f.lastRun)
+    }
+
+    @Test
     fun codesAndPasswordsAreChecked() {
         assertEquals("12345678", codeDigits(" 1234 5678 "))
         assertEquals("12345678", codeDigits("1234-5678"))
@@ -423,15 +436,17 @@ class EzApiTest {
     companion object {
         private const val STATE = """
         {"player":"Steve","weatherTab":true,"state":{
-          "generatedAt":1,"units":"F","writable":true,"ezvacVersion":"x","apiVersion":"1.12",
+          "generatedAt":1800000000000,"units":"F","writable":true,"ezvacVersion":"x","apiVersion":"1.13",
           "homes":[{"id":"home1","name":"Cottage"}],
           "devices":[
             {"key":"w:1:2:3","world":"world","x":1,"y":2,"z":3,"kind":"thermostat","type":"room","label":"Living room",
              "roomF":70.1,"targetF":72.5,"mode":"heating","enabled":true,"pool":false,"mini":false,"humidity":41.0,
              "runningUnits":1,"totalUnits":2,"unitsOff":0,"profile":"eco","blocked":false,"attention":["cant_keep_up"],
-             "nickname":"Lounge","home":"home1","weather":{"station":"wx1","distance":40}},
+             "nickname":"Lounge","home":"home1","weather":{"station":"wx1","distance":40},
+             "loaded":true,"modeSince":1799999250000,
+             "lastRun":{"mode":"cooling","startedAt":1799990000000,"endedAt":1799991800000}},
             {"key":"w:4:5:6","world":"world","x":4,"y":5,"z":6,"kind":"unit","type":"humidifier","label":"Bedroom",
-             "humidity":38.0,"setpoint":50,"powered":true,"state":"running","tank":0.4,"home":""},
+             "humidity":38.0,"setpoint":50,"powered":true,"state":"running","tank":0.4,"home":"","loaded":false},
             {"key":"w:7:8:9","world":"world","x":7,"y":8,"z":9,"kind":"unit","type":"refrigerator","label":"Kitchen",
              "humidity":40.0,"setpoint":0,"powered":true,"state":"idle","tank":0.0,"insideF":-2.0,
              "cold":{"doorOpen":true,"defrosting":false,"autoDefrost":true,"fridgeInsideF":38.0,"fridgeSetpointF":36,"barrels":0},"home":"home1"},

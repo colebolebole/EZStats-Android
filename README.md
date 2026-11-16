@@ -17,6 +17,8 @@ and you choose which server (URL) to connect to.
   - fridges / freezers / refrigerators (targets, defrost, auto-defrost, door, frost), humidifiers and dehumidifiers
     (target, tank) and air purifiers (fan mode, filter, AQI) open full screen too
   - heat pumps / ACs / furnaces / boilers switch on and off right on their tile; thermometers, sensors, monitors and vents show their readings
+- **EZvac Pilot 8** – a thermostat's card and full-screen view say how long it has been heating or cooling and when it
+  last ran (`Cooling for 12 min · Last heated 14:02 to 14:20`). Older EZvac versions simply leave this out.
 - **Rename devices, make homes, move devices between homes** – long-press a tile (or ⋮ on a full-screen device).
 - **Weather** tab (if the server has it on) – built like a weather app: swipe between stations under a live animated sky
   (sun, cloud, rain, snow, thunderstorms), each with a huge temperature, a summary of today, a week of range bars,

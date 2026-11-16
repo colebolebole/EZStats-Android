@@ -44,6 +44,7 @@ import com.ezstats.android.EzViewModel
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.Station
 import com.ezstats.android.ui.common.ATTENTION
+import com.ezstats.android.ui.common.modeLine
 import com.ezstats.android.ui.common.BAND
 import com.ezstats.android.ui.common.IconBadge
 import com.ezstats.android.ui.common.LocalUnits
@@ -169,6 +170,10 @@ private fun ThermostatTile(d: Device, station: Station?, onClick: (() -> Unit)?,
                 station?.outdoorF?.let { t ->
                     Chip(station.today?.let { skyIcon(it.sky) } ?: skyIcon(""), "${units.whole(t)} outside")
                 }
+            }
+            // "Cooling for 12 min · Last heated 14:02 to 14:20" (EZvac Pilot 8+; nothing on an older one)
+            modeLine(d)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall.numeric, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             AnimatedVisibility(
                 visible = d.attention.isNotEmpty(),

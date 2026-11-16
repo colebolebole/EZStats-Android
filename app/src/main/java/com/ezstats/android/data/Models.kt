@@ -65,6 +65,10 @@ data class Cold(
     val chillerF: Double?,
 )
 
+/** A thermostat's last finished heating or cooling run (EZvac Pilot 8+): epoch milliseconds. */
+@Immutable
+data class LastRun(val mode: String, val startedAt: Long, val endedAt: Long)
+
 @Immutable
 data class Reading(
     val tempF: Double?,
@@ -103,6 +107,13 @@ data class Device(
     val profile: String = "normal",
     val attention: List<String> = emptyList(),
     val weather: WeatherLink? = null,
+    /**
+     * Whole minutes it has been in its [mode] as of the server's last read (Pilot 8+), worked out from the server's own
+     * clock so this phone's clock doesn't matter. In whole minutes so it only changes once a minute and the tile isn't
+     * redrawn on every poll for it. Null when EZvac doesn't say.
+     */
+    val modeMinutes: Long? = null,
+    val lastRun: LastRun? = null,
     // equipment
     val running: Boolean = false,
     val rpm: Double? = null,

@@ -191,3 +191,43 @@ fun greeting(hour: Int) = when (hour) {
     in 12..17 -> "Good afternoon"
     else -> "Good evening"
 }
+
+// --- how long a thermostat has been heating or cooling (EZvac Pilot 8+) -------------------------------------------
+
+/** "under a minute", "12 min", "2 h 5 min", "1 d 3 h". */
+fun spanText(minutes: Long): String {
+    if (minutes < 1) return "under a minute"
+    if (minutes < 60) return "$minutes min"
+    val hours = minutes / 60
+    if (hours < 24) return "$hours h ${minutes % 60} min"
+    return "${hours / 24} d ${hours % 24} h"
+}
+
+/** A time of day in this phone's time zone, with the date when it wasn't today. */
+fun clockText(
+    epochMs: Long,
+    now: java.time.Instant = java.time.Instant.now(),
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+): String {
+    val at = java.time.Instant.ofEpochMilli(epochMs).atZone(zone)
+    val time = java.time.format.DateTimeFormatter.ofLocalizedTime(java.time.format.FormatStyle.SHORT)
+    return if (at.toLocalDate() == now.atZone(zone).toLocalDate()) at.format(time)
+    else at.format(java.time.format.DateTimeFormatter.ofPattern("MMM d")) + " " + at.format(time)
+}
+
+/**
+ * "Cooling for 12 min · Last heated 14:02 to 14:20": how long it has been in its mode and its last finished run.
+ * Null when EZvac doesn't say (before Pilot 8).
+ */
+fun modeLine(d: Device, now: java.time.Instant = java.time.Instant.now(), zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String? {
+    val parts = mutableListOf<String>()
+    val minutes = d.modeMinutes
+    if (d.enabled && minutes != null) {
+        val word = when (d.mode) { "heating" -> "Heating"; "cooling" -> "Cooling"; "idle" -> "Idle"; else -> cap(d.mode) }
+        parts += "$word for ${spanText(minutes)}"
+    }
+    d.lastRun?.let { r ->
+        parts += "Last ${if (r.mode == "heating") "heated" else "cooled"} ${clockText(r.startedAt, now, zone)} to ${clockText(r.endedAt, now, zone)}"
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
