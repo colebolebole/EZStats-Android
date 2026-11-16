@@ -70,9 +70,12 @@ fun aqiColor(aqi: Int): Color = when {
     else -> Color(0xFF9F1239)
 }
 
-/** The range a week of forecasts spans, so every day's bar is drawn on the same scale. */
-internal fun forecastRange(days: List<ForecastDay>, now: Double?): Pair<Double, Double>? {
-    val values = days.flatMap { listOfNotNull(it.lowF, it.highF) } + listOfNotNull(now)
+/**
+ * The range a week of forecasts spans, so every day's bar is drawn on the same scale. Right now isn't part of it: a
+ * temperature far outside the forecast (a season just changed) would squash every bar into one end.
+ */
+internal fun forecastRange(days: List<ForecastDay>): Pair<Double, Double>? {
+    val values = days.flatMap { listOfNotNull(it.lowF, it.highF) }
     if (values.isEmpty()) return null
     val lo = values.min()
     val hi = values.max()
@@ -87,7 +90,7 @@ internal fun forecastRange(days: List<ForecastDay>, now: Double?): Pair<Double, 
 @Composable
 fun ForecastRows(days: List<ForecastDay>, nowF: Double?, content: Color) {
     val units = LocalUnits.current
-    val range = forecastRange(days, nowF) ?: return
+    val range = forecastRange(days) ?: return
     val grow = remember { Animatable(0f) }
     LaunchedEffect(Unit) { grow.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 120f)) }
     val muted = content.copy(alpha = 0.7f)
@@ -124,8 +127,11 @@ fun ForecastRows(days: List<ForecastDay>, nowF: Double?, content: Color) {
                         cornerRadius = CornerRadius(size.height / 2),
                     )
                     if (d.daysAhead == 0 && nowF != null) {
-                        drawCircle(Color.White, size.height * 0.85f, Offset(x(nowF), size.height / 2))
-                        drawCircle(tempColor(nowF), size.height * 0.5f, Offset(x(nowF), size.height / 2))
+                        // On today's bar even when it's hotter or colder than the forecast says: it sits at that end of the bar,
+                        // in the colour of the real temperature (red against an orange high).
+                        val at = Offset(x(nowF.coerceIn(l, h)), size.height / 2)
+                        drawCircle(Color.White, size.height * 0.85f, at)
+                        drawCircle(tempColor(nowF), size.height * 0.5f, at)
                     }
                 }
                 Text(units.whole(d.highF), style = MaterialTheme.typography.titleSmall.numeric, color = content, modifier = Modifier.width(40.dp))
