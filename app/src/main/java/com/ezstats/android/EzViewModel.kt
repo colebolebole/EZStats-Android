@@ -4,8 +4,22 @@ import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.ezstats.android.data.ApiException
+import com.ezstats.android.data.AppSettings
+import com.ezstats.android.data.SettingsStore
+import com.ezstats.android.data.Device
+import com.ezstats.android.data.EzApi
+import com.ezstats.android.data.Server
+import com.ezstats.android.data.ServerStore
+import com.ezstats.android.data.StateData
+import com.ezstats.android.data.WeatherData
+import com.ezstats.android.data.parseState
+import com.ezstats.android.data.parseWeather
+import com.ezstats.android.data.shareWith
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -16,17 +30,19 @@ enum class Status { CHECKING, OFFLINE, LOGIN, READY }
 
 enum class Tab { DEVICES, WEATHER }
 
-enum class DetailKind { DEVICE, STATION }
-
-/** Which thing is open full screen: a device (thermostat, fridge…) or a weather station. */
-data class DetailRef(val kind: DetailKind, val key: String) {
-    /** The key its tile's position is filed under, so a station and a device can never be mixed up. */
-    val tileKey get() = if (kind == DetailKind.STATION) "station:$key" else key
-}
-
 class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = ServerStore(app)
+    private val settingsStore = SettingsStore(app)
+
+    /** This phone's preferences: theme, units, refresh rate and so on. */
+    var settings by mutableStateOf(settingsStore.load()); private set
+    var showSettings by mutableStateOf(false)
+
+    fun updateSettings(change: (AppSettings) -> AppSettings) {
+        settings = change(settings)
+        settingsStore.save(settings)
+    }
 
     var servers by mutableStateOf(store.list()); private set
     var active by mutableStateOf(store.active()); private set
@@ -45,18 +61,21 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     var tab by mutableStateOf(Tab.DEVICES)
 
-    /** The device or weather station shown full screen, or null for the dashboard. */
-    var openDetail by mutableStateOf<DetailRef?>(null)
+    /** The station the Weather tab shows (its pager follows this), or null for the first one. */
+    var weatherStation by mutableStateOf<String?>(null)
 
-    /** Where each tile is on screen (by [DetailRef.tileKey]), so the full-screen view can grow from and shrink back to it. */
-    val tileBounds = HashMap<String, androidx.compose.ui.geometry.Rect>()
+    /** The device shown full screen, by key, or null for the dashboard. */
+    var openDetail by mutableStateOf<String?>(null)
 
-    /** The dashboard sets this: scrolls (and unfolds its home) so a thermostat's tile is on screen. */
+    /** Where each device tile is on screen, so the full-screen view can grow from and shrink back to it. */
+    val tileBounds = HashMap<String, Rect>()
+
+    /** The dashboard sets this: scrolls (and unfolds its home) so a device's tile is on screen. */
     var revealTile: (suspend (String) -> Unit)? = null
 
-    /** How much the dashboard is scaled down behind the thermostat view, and the size of the screen. */
+    /** How much the dashboard is scaled down behind the full-screen view, and the size of the screen. */
     var dashboardScale: () -> Float = { 1f }
-    var rootSize = androidx.compose.ui.geometry.Size.Zero
+    var rootSize = Size.Zero
 
     /** Homes folded shut on the dashboard; remembered between launches. */
     var collapsed by mutableStateOf(store.collapsedHomes()); private set
@@ -65,6 +84,10 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     private var api: EzApi? = null
     private val inFlight = HashMap<String, Int>() // devices with a change on its way: polling must not undo it
+
+    /** The JSON behind [data] and [weather]: a poll that brings back exactly the same text is skipped. */
+    private var lastStateRaw: String? = null
+    private var lastWeatherRaw: String? = null
 
     init {
         if (active != null) {
@@ -87,18 +110,8 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         if (store.cookie(server.id) == null) return // never signed in here: nothing worth showing
         viewModelScope.launch(Dispatchers.Default) {
             val raw = store.readSnapshot(server.id) ?: return@launch
-            val cached = try {
-                parseState(raw)
-            } catch (e: Exception) {
-                return@launch
-            }
-            val cachedWeather = store.readWeatherSnapshot(server.id)?.let {
-                try {
-                    parseWeather(it)
-                } catch (e: Exception) {
-                    null
-                }
-            }
+            val cached = runCatching { parseState(raw) }.getOrNull() ?: return@launch
+            val cachedWeather = store.readWeatherSnapshot(server.id)?.let { runCatching { parseWeather(it) }.getOrNull() }
             withContext(Dispatchers.Main) {
                 if (active == server && data == null && status == Status.CHECKING) {
                     data = cached
@@ -143,11 +156,15 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     private fun resetSession() {
         data = null
         weather = null
+        lastStateRaw = null
+        lastWeatherRaw = null
         banner = null
         loginError = null
         statusError = null
         tab = Tab.DEVICES
+        weatherStation = null
         openDetail = null
+        showSettings = false
         inFlight.clear()
     }
 
@@ -217,6 +234,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
                 val fresh = a.stateResult()
                 if (active != server) return@launch
                 data = fresh.data.shareWith(data)
+                lastStateRaw = fresh.raw
                 status = Status.READY
                 saveSnapshot(server, fresh.raw, force = true)
             } catch (e: ApiException) {
@@ -251,6 +269,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
                 val fresh = a.stateResult()
                 if (active != server) return@launch
                 data = fresh.data
+                lastStateRaw = fresh.raw
                 banner = null
                 status = Status.READY
                 saveSnapshot(server, fresh.raw, force = true)
@@ -282,11 +301,11 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- polling ------------------------------------------------------------------------------------
 
-    /** Keeps the devices current while the screen is visible: every 2 seconds. */
+    /** Keeps the devices current while the screen is visible: every 2 seconds, or as often as set in Settings. */
     suspend fun pollLoop() {
         while (true) {
             refreshState()
-            delay(2_000)
+            delay(settings.refreshSeconds * 1_000L)
         }
     }
 
@@ -300,23 +319,27 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Loads the weather once, as soon as the dashboard is up, so the Weather tab opens with everything ready. */
     suspend fun prefetchWeather() {
-        if (weather == null && data?.weatherTab == true) refreshWeather()
+        if (lastWeatherRaw == null && data?.weatherTab == true) refreshWeather()
     }
 
     suspend fun refreshState() {
         val a = api ?: return
         val server = active
         try {
-            val result = a.stateResult()
+            val result = a.stateResultIfChanged(lastStateRaw)
             if (active != server) return
+            banner = null
+            if (result == null) return // exactly what is on screen already
             var next = result.data
             if (inFlight.isNotEmpty()) {
                 val mine = data?.devices?.associateBy { it.key }.orEmpty()
                 next = next.copy(devices = next.devices.map { if (inFlight.containsKey(it.key)) mine[it.key] ?: it else it })
+                lastStateRaw = null // what is shown isn't what the server sent: read it properly next time
+            } else {
+                lastStateRaw = result.raw
             }
             // Same objects wherever nothing changed, so the screen only redraws what actually did.
             data = next.shareWith(data)
-            banner = null
             saveSnapshot(server, result.raw)
         } catch (e: ApiException) {
             if (active != server) return
@@ -328,9 +351,10 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         val a = api ?: return
         val server = active
         try {
-            val fresh = a.weatherResult()
+            val fresh = a.weatherResultIfChanged(lastWeatherRaw) ?: return
             if (active != server) return
             weather = fresh.data.shareWith(weather)
+            lastWeatherRaw = fresh.raw
             saveWeatherSnapshot(server, fresh.raw)
         } catch (e: ApiException) {
             if (active != server) return
@@ -338,11 +362,33 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** True while a refresh the user asked for (pull to refresh) is running. */
+    var refreshing by mutableStateOf(false); private set
+
     fun refreshNow() {
+        if (refreshing) return
+        refreshing = true
         viewModelScope.launch {
-            refreshState()
-            if (tab == Tab.WEATHER) refreshWeather()
+            val started = System.currentTimeMillis()
+            try {
+                lastStateRaw = null
+                refreshState()
+                if (tab == Tab.WEATHER) {
+                    lastWeatherRaw = null
+                    refreshWeather()
+                }
+                // A refresh that is over in a blink looks like nothing happened: let the indicator be seen.
+                delay((600 - (System.currentTimeMillis() - started)).coerceAtLeast(0))
+            } finally {
+                refreshing = false
+            }
         }
+    }
+
+    /** Shows a weather station on the Weather tab. */
+    fun openStation(key: String) {
+        weatherStation = key
+        tab = Tab.WEATHER
     }
 
     // --- changes ------------------------------------------------------------------------------------
@@ -350,6 +396,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     private fun updateDevice(key: String, change: (Device) -> Device) {
         val s = data ?: return
         data = s.copy(devices = s.devices.map { if (it.key == key) change(it) else it })
+        lastStateRaw = null // the screen no longer matches the last answer
     }
 
     /**
@@ -370,6 +417,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
             delay(350)
             val left = (inFlight[key] ?: 1) - 1
             if (left <= 0) inFlight.remove(key) else inFlight[key] = left
+            lastStateRaw = null
             refreshState()
         }
     }
@@ -379,6 +427,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         val a = api ?: return "Not connected."
         return try {
             call(a)
+            lastStateRaw = null
             refreshState()
             null
         } catch (e: ApiException) {

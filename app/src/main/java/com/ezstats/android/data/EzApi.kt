@@ -1,4 +1,4 @@
-package com.ezstats.android
+package com.ezstats.android.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -128,8 +128,15 @@ class EzApi(
 
     // Parsing happens on a background thread: a big state parsed on the main thread every two seconds is a
     // dropped frame every two seconds.
-    suspend fun stateResult(): StateResult {
+    suspend fun stateResult(): StateResult = stateResultIfChanged(null)!!
+
+    /**
+     * The state, or null when the server sent exactly [previousRaw] again: most polls change nothing, and those
+     * then skip parsing, comparing and redrawing altogether.
+     */
+    suspend fun stateResultIfChanged(previousRaw: String?): StateResult? {
         val r = checked(request("GET", "/api/state"))
+        if (previousRaw != null && r.body == previousRaw) return null
         return withContext(Dispatchers.Default) {
             try {
                 StateResult(parseState(r.body), r.body)
@@ -143,8 +150,12 @@ class EzApi(
 
     class WeatherResult(val data: WeatherData, val raw: String)
 
-    suspend fun weatherResult(): WeatherResult {
+    suspend fun weatherResult(): WeatherResult = weatherResultIfChanged(null)!!
+
+    /** The weather, or null when it is exactly [previousRaw] again (see [stateResultIfChanged]). */
+    suspend fun weatherResultIfChanged(previousRaw: String?): WeatherResult? {
         val r = checked(request("GET", "/api/weather"))
+        if (previousRaw != null && r.body == previousRaw) return null
         return withContext(Dispatchers.Default) {
             try {
                 WeatherResult(parseWeather(r.body), r.body)

@@ -1,4 +1,4 @@
-package com.ezstats.android
+package com.ezstats.android.data
 
 import android.content.Context
 import org.json.JSONArray
