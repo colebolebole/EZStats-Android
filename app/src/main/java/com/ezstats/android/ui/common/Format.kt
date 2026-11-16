@@ -1,7 +1,28 @@
-package com.ezstats.android.ui
+package com.ezstats.android.ui.common
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.Air
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DeviceThermostat
+import androidx.compose.material.icons.rounded.FlashOn
+import androidx.compose.material.icons.rounded.HeatPump
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Kitchen
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.Pool
+import androidx.compose.material.icons.rounded.Sensors
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Thermostat
+import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material.icons.rounded.Whatshot
 import androidx.compose.runtime.compositionLocalOf
-import com.ezstats.android.Device
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.ezstats.android.data.Device
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** The server stores every temperature in °F; this shows them in the server's units. */
@@ -17,7 +38,7 @@ class UnitFmt(val celsius: Boolean) {
     /** A thermostat target: whole degrees in °F, a decimal in °C. */
     fun target(f: Double): String {
         val v = show(f)
-        return if (celsius) "%.1f".format(v) else if (kotlin.math.abs(v - v.roundToInt()) < 0.05) "${v.roundToInt()}" else "%.1f".format(v)
+        return if (celsius) "%.1f".format(v) else if (abs(v - v.roundToInt()) < 0.05) "${v.roundToInt()}" else "%.1f".format(v)
     }
 
     fun speed(ms: Double?) = when {
@@ -25,6 +46,15 @@ class UnitFmt(val celsius: Boolean) {
         celsius -> "${(ms * 3.6).roundToInt()} km/h"
         else -> "${(ms * 2.236936).roundToInt()} mph"
     }
+
+    /** Just the number of [speed], and its unit, for layouts that set them in different sizes. */
+    fun speedValue(ms: Double?) = when {
+        ms == null -> "–"
+        celsius -> "${(ms * 3.6).roundToInt()}"
+        else -> "${(ms * 2.236936).roundToInt()}"
+    }
+
+    val speedUnit get() = if (celsius) "km/h" else "mph"
 
     /** A stored whole °F moved by one shown degree. */
     fun stepF(f: Int, direction: Int): Int =
@@ -35,9 +65,19 @@ class UnitFmt(val celsius: Boolean) {
 }
 
 val LocalUnits = compositionLocalOf { UnitFmt(false) }
+
+/**
+ * A screen with little height to spare: a phone on its side, or a small window. Big headers, heroes and the dial
+ * shrink there so the content still fits.
+ */
+@androidx.compose.runtime.Composable
+@androidx.compose.runtime.ReadOnlyComposable
+fun isShortScreen(): Boolean = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 520
 val LocalWritable = compositionLocalOf { false }
 
 fun cap(s: String) = s.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+fun plural(n: Int, one: String, many: String = one + "s") = "$n ${if (n == 1) one else many}"
 
 val TYPE_NAME = mapOf(
     "room" to "Thermostat",
@@ -79,7 +119,7 @@ val ATTENTION = mapOf(
     "undersized" to "Undersized",
 )
 
-val SKY = mapOf("clear" to "Clear", "rain" to "Rain", "snow" to "Snow", "thunder" to "Thunder")
+val SKY = mapOf("clear" to "Clear", "rain" to "Rain", "snow" to "Snow", "thunder" to "Thunderstorms")
 val WIND = mapOf("calm" to "Calm", "breezy" to "Breezy", "windy" to "Windy", "gale" to "Gale")
 val BAND = mapOf(
     "good" to "Good",
@@ -98,7 +138,15 @@ val UNIT_STATE = mapOf(
     "filter_spent" to "Filter spent",
 )
 
-val FRIDGES = listOf("fridge", "deep_freezer", "refrigerator", "mini_fridge")
+fun skyName(sky: String) = SKY[sky] ?: cap(sky.ifBlank { "cloudy" })
+
+fun skyIcon(sky: String): ImageVector = when (sky) {
+    "rain" -> Icons.Rounded.WaterDrop
+    "snow" -> Icons.Rounded.AcUnit
+    "thunder" -> Icons.Rounded.FlashOn
+    "clear" -> Icons.Rounded.WbSunny
+    else -> Icons.Rounded.Cloud
+}
 
 fun typeName(d: Device) = TYPE_NAME[d.type] ?: cap(d.type.ifBlank { "device" })
 
@@ -115,4 +163,31 @@ fun deviceWhere(d: Device): String {
     if (d.mini) parts += "mini"
     d.system?.let { parts += "system $it" }
     return parts.joinToString(" · ")
+}
+
+/** A picture of what a device is. */
+fun deviceIcon(d: Device): ImageVector = when (d.type) {
+    "room" -> Icons.Rounded.Thermostat
+    "pool", "pool_heat_pump" -> Icons.Rounded.Pool
+    "heat_pump" -> Icons.Rounded.HeatPump
+    "air_conditioner" -> Icons.Rounded.AcUnit
+    "furnace" -> Icons.Rounded.LocalFireDepartment
+    "boiler" -> Icons.Rounded.Whatshot
+    "dehumidifier", "humidifier", "hygrometer", "humidity_sensor" -> Icons.Rounded.WaterDrop
+    "air_purifier", "air_monitor", "air_sensor", "air", "wind_sensor" -> Icons.Rounded.Air
+    "fridge", "refrigerator", "mini_fridge" -> Icons.Rounded.Kitchen
+    "deep_freezer" -> Icons.Rounded.AcUnit
+    "water" -> Icons.Rounded.Waves
+    "sensor_hub" -> Icons.Rounded.Hub
+    "rpm_monitor" -> Icons.Rounded.Speed
+    "settings_panel" -> Icons.Rounded.Settings
+    "thermometer", "temperature_sensor", "thermo_hygrometer", "temperature_humidity_sensor" -> Icons.Rounded.DeviceThermostat
+    else -> if (d.isThermostat) Icons.Rounded.Thermostat else Icons.Rounded.Sensors
+}
+
+/** "Good evening": the dashboard's greeting. */
+fun greeting(hour: Int) = when (hour) {
+    in 5..11 -> "Good morning"
+    in 12..17 -> "Good afternoon"
+    else -> "Good evening"
 }

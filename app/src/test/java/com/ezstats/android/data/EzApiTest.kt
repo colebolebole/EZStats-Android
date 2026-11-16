@@ -1,4 +1,4 @@
-package com.ezstats.android
+package com.ezstats.android.data
 
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -281,6 +281,18 @@ class EzApiTest {
         assertTrue(shared.homes === first.homes)
         assertTrue(shared.worlds === first.worlds)
         assertTrue(shared.stations === first.stations)
+    }
+
+    @Test
+    fun anUnchangedPollIsSkipped() = runBlocking {
+        sessions += "abc123"
+        val a = api("abc123")
+        val first = a.stateResult()
+        assertNull("the same answer again isn't parsed", a.stateResultIfChanged(first.raw))
+        assertNotNull("anything else is", a.stateResultIfChanged(first.raw + " "))
+        assertNotNull("and so is the first read", a.stateResultIfChanged(null))
+        val weather = a.weatherResult()
+        assertNull(a.weatherResultIfChanged(weather.raw))
     }
 
     @Test

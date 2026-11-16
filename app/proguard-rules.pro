@@ -1,4 +1,3 @@
-# The app's own code is kept exactly as written: it is small, and nothing in it is worth the risk of R8
-# renaming or removing something that is used indirectly. R8 still shrinks and optimizes every library,
-# which is where the size is (the extended icon set alone is megabytes).
--keep class com.ezstats.android.** { *; }
+# R8 shrinks and optimizes the app's own code along with its libraries. Nothing in the app is reached by
+# reflection: the activity and application are kept through the manifest, and the ViewModel's constructor by
+# the lifecycle library's own rules.
