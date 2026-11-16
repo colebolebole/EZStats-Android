@@ -4,7 +4,9 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -126,7 +128,7 @@ fun ThermostatTile(vm: EzViewModel, d: Device, state: StateData) {
         vm, d, state.homes,
         pill = { StatusPill(thermostatStatus(d), thermostatTone(d)) },
         onClick = { vm.openThermostat = d.key },
-        modifier = Modifier.onGloballyPositioned { vm.tileBounds[d.key] = it.boundsInRoot() },
+        modifier = Modifier.onGloballyPositioned { vm.tileBounds[d.key] = unscaled(it.boundsInRoot(), vm) },
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Dial(d, d.targetF ?: ((minF + maxF) / 2), LocalUnits.current, false, minF, maxF, {}, compact = true)
@@ -151,13 +153,27 @@ fun ThermostatTile(vm: EzViewModel, d: Device, state: StateData) {
 
 // --- the full-screen view ---------------------------------------------------------------------------------
 
+/**
+ * A tile's rectangle as it would be if the dashboard weren't sunk back behind the thermostat view. The dashboard
+ * shrinks about the middle of the screen, and the rectangle has to be where the tile will be once it settles.
+ */
+private fun unscaled(r: Rect, vm: EzViewModel): Rect {
+    val s = vm.dashboardScale()
+    val size = vm.rootSize
+    if (s == 1f || s <= 0f || size.width == 0f) return r
+    val cx = size.width / 2
+    val cy = size.height / 2
+    fun fix(o: Offset) = Offset(cx + (o.x - cx) / s, cy + (o.y - cy) / s)
+    return Rect(fix(r.topLeft), fix(r.bottomRight))
+}
+
 /** The window the full-screen view is seen through: it grows from the tile's rectangle to the whole screen. */
 private class RevealShape(private val from: Rect?, private val progress: Float, private val corner: Float) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val full = Rect(0f, 0f, size.width, size.height)
         val start = from ?: Rect(Offset(size.width / 2 - 60f, size.height / 2 - 60f), Size(120f, 120f))
         val r = lerp(start, full, progress)
-        val radius = lerpFloat(corner, 0f, progress)
+        val radius = lerpFloat(corner, 0f, progress).coerceAtLeast(0f) // a spring can overshoot past full screen
         return Outline.Rounded(RoundRect(r, CornerRadius(radius, radius)))
     }
 }
@@ -168,20 +184,28 @@ private class RevealShape(private val from: Rect?, private val progress: Float, 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ThermostatOverlay(vm: EzViewModel, key: String, state: StateData, snackbar: SnackbarHostState) {
+fun ThermostatOverlay(
+    vm: EzViewModel,
+    key: String,
+    state: StateData,
+    snackbar: SnackbarHostState,
+    expand: Animatable<Float, AnimationVector1D>, // 0 = the tile, 1 = the whole screen; shared with the dashboard
+) {
     val scope = rememberCoroutineScope()
-    val expand = remember(key) { Animatable(0f) }  // 0 = the tile, 1 = the whole screen
     val gesture = remember(key) { Animatable(0f) } // how far the back gesture has been dragged
     var closing by remember(key) { mutableStateOf(false) }
     val card = MaterialTheme.colorScheme.surfaceContainerLow
     val page = MaterialTheme.colorScheme.background
 
-    LaunchedEffect(key) { expand.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
+    LaunchedEffect(key) { expand.animateTo(1f, Motion.open) }
 
     suspend fun close() {
         if (closing) return
         closing = true
-        expand.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
+        // The thermostat may have been moved to another home: bring its tile into view (unseen, under this
+        // screen) so the shrink lands on it.
+        vm.revealTile?.invoke(key)
+        expand.animateTo(0f, Motion.close)
         vm.openThermostat = null
     }
 
@@ -191,11 +215,11 @@ fun ThermostatOverlay(vm: EzViewModel, key: String, state: StateData, snackbar: 
                 gesture.snapTo(event.progress)
                 expand.snapTo(1f - 0.3f * event.progress)
             }
-            scope.launch { gesture.animateTo(0f, tween(320)) }
+            scope.launch { gesture.animateTo(0f, Motion.close) }
             close()
         } catch (e: CancellationException) {
-            scope.launch { gesture.animateTo(0f, tween(220)) }
-            expand.animateTo(1f, tween(220))
+            scope.launch { gesture.animateTo(0f, Motion.settle) }
+            expand.animateTo(1f, Motion.settle)
         }
     }
 
@@ -209,10 +233,18 @@ fun ThermostatOverlay(vm: EzViewModel, key: String, state: StateData, snackbar: 
                 shape = RevealShape(vm.tileBounds[key], expand.value, 28.dp.toPx())
                 clip = true
             }
-            .drawBehind { drawRect(lerpColor(card, page, expand.value)) }
+            .drawBehind { drawRect(lerpColor(card, page, expand.value.coerceIn(0f, 1f))) }
             .pointerInput(Unit) {}, // the dashboard underneath must not receive touches
     ) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = ((expand.value - 0.3f) / 0.7f).coerceIn(0f, 1f) }) {
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                // The content arrives a beat after the window starts growing, rising into place as it fades in.
+                val e = expand.value.coerceIn(0f, 1f)
+                val t = ((e - 0.25f) / 0.6f).coerceIn(0f, 1f)
+                alpha = t * t * (3f - 2f * t)
+                translationY = (1f - t) * 28.dp.toPx()
+            },
+        ) {
             ThermostatScreen(vm, key, state, snackbar, onClose = { scope.launch { close() } })
         }
     }
@@ -459,17 +491,23 @@ private fun Dial(
     maxSize: Dp = if (compact) 190.dp else 280.dp,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val arcColor = when {
+    val arcTarget = when {
         !d.enabled -> scheme.outline
         d.mode == "heating" -> HeatColor
         d.mode == "cooling" -> CoolColor
         else -> scheme.primary
     }
+    // The arc, its colour and the room marker glide to new values instead of jumping when the server reports them.
+    val arcColor by animateColorAsState(arcTarget, tween(450), label = "dial colour")
     val track = scheme.surfaceVariant
     val surface = if (compact) scheme.surfaceContainerLow else scheme.background
     val marker = scheme.onSurface
-    val frac = ((target - minF) / (maxF - minF)).coerceIn(0.0, 1.0).toFloat()
-    val roomFrac = d.roomF?.let { ((it - minF) / (maxF - minF)).coerceIn(0.0, 1.0).toFloat() }
+    val frac by animateFloatAsState(((target - minF) / (maxF - minF)).coerceIn(0.0, 1.0).toFloat(), Motion.quick, label = "dial target")
+    val roomFrac by animateFloatAsState(
+        d.roomF?.let { ((it - minF) / (maxF - minF)).coerceIn(0.0, 1.0).toFloat() } ?: -1f,
+        spring(dampingRatio = 1f, stiffness = 120f),
+        label = "dial room",
+    )
     val latest by rememberUpdatedState(onChange)
 
     fun pick(p: Offset, size: IntSize) {
@@ -512,9 +550,9 @@ private fun Dial(
             }
             drawArc(track, 135f, 270f, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
             if (frac > 0f) drawArc(arcColor, 135f, 270f * frac, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-            roomFrac?.let {
-                drawCircle(surface, stroke * 0.38f, point(it))
-                drawCircle(marker, stroke * 0.17f, point(it))
+            if (roomFrac >= 0f) {
+                drawCircle(surface, stroke * 0.38f, point(roomFrac))
+                drawCircle(marker, stroke * 0.17f, point(roomFrac))
             }
             if (d.enabled && !compact) {
                 drawCircle(surface, stroke * 0.85f, point(frac))

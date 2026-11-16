@@ -41,6 +41,13 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     /** Where each thermostat tile is on screen, so the full-screen view can grow from and shrink back to it. */
     val tileBounds = HashMap<String, androidx.compose.ui.geometry.Rect>()
 
+    /** The dashboard sets this: scrolls (and unfolds its home) so a thermostat's tile is on screen. */
+    var revealTile: (suspend (String) -> Unit)? = null
+
+    /** How much the dashboard is scaled down behind the thermostat view, and the size of the screen. */
+    var dashboardScale: () -> Float = { 1f }
+    var rootSize = androidx.compose.ui.geometry.Size.Zero
+
     /** Homes folded shut on the dashboard; remembered between launches. */
     var collapsed by mutableStateOf(store.collapsedHomes()); private set
 

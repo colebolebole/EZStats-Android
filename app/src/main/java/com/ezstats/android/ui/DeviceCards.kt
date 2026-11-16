@@ -1,5 +1,9 @@
 package com.ezstats.android.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -148,8 +152,23 @@ fun DeviceFrame(
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { content() }
         }
     }
-    if (onClick != null) Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors, content = inner)
-    else Card(modifier = modifier, shape = shape, colors = colors, content = inner)
+    if (onClick != null) {
+        // Pressing a tappable card sinks it a little, and it springs back when released.
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val press by animateFloatAsState(if (pressed) 0.97f else 1f, Motion.quick, label = "press")
+        Card(
+            onClick = onClick,
+            // The caller's modifier comes first, so whatever measures the card (its screen position) sees it unpressed.
+            modifier = modifier.graphicsLayer { scaleX = press; scaleY = press },
+            shape = shape,
+            colors = colors,
+            interactionSource = interaction,
+            content = inner,
+        )
+    } else {
+        Card(modifier = modifier, shape = shape, colors = colors, content = inner)
+    }
 }
 
 // --- everything that isn't a thermostat ----------------------------------------------------------------

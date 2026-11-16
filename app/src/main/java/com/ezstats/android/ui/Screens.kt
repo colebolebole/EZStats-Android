@@ -5,7 +5,20 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.grid.LazyGridItemInfo
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.toSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -139,8 +152,8 @@ fun EzApp(vm: EzViewModel) {
                 }
                 AnimatedVisibility(
                     visible = vm.active == null || vm.showServers,
-                    enter = slideInHorizontally(tween(340, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)),
-                    exit = slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
+                    enter = slideInHorizontally(Motion.slide) { it } + fadeIn(tween(220)),
+                    exit = slideOutHorizontally(Motion.slide) { it } + fadeOut(tween(200)),
                 ) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { ServersScreen(vm) }
                 }
@@ -170,7 +183,7 @@ fun ServersScreen(vm: EzViewModel) {
             progress.collect { gesture.snapTo(it.progress) }
             vm.showServers = false
         } catch (e: CancellationException) {
-            gesture.animateTo(0f, tween(200))
+            gesture.animateTo(0f, Motion.settle)
         }
     }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -480,12 +493,34 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
     val showWeather = state.weatherTab
     if (!showWeather && vm.tab == Tab.WEATHER) vm.tab = Tab.DEVICES
 
+    // How far the thermostat view has opened (0 = closed). The dashboard behind it reads this to sink back.
+    val expand = remember { Animatable(0f) }
+    val gridState = rememberLazyGridState()
+    SideEffect { vm.dashboardScale = { 1f - DEPTH * expand.value.coerceIn(0f, 1f) } }
+    LaunchedEffect(vm.openThermostat) {
+        // If the thermostat view vanished without closing (its device went away), settle the dashboard back.
+        if (vm.openThermostat == null && expand.value != 0f) expand.animateTo(0f, Motion.close)
+    }
+
     CompositionLocalProvider(
         LocalUnits provides UnitFmt(state.units == "C"),
         LocalWritable provides state.writable,
     ) {
         // The dashboard stays composed under the thermostat view, so it is exactly where you left it.
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().onSizeChanged { vm.rootSize = it.toSize() }) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val e = expand.value.coerceIn(0f, 1f)
+                    scaleX = 1f - DEPTH * e
+                    scaleY = 1f - DEPTH * e
+                }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(Color.Black.copy(alpha = 0.24f * expand.value.coerceIn(0f, 1f)))
+                },
+        ) {
         Scaffold(
             modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
             topBar = {
@@ -550,18 +585,40 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
             },
             snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
-            when (vm.tab) {
-                Tab.DEVICES -> DevicesTab(vm, padding)
-                Tab.WEATHER -> WeatherTab(vm, padding)
+            Crossfade(targetState = vm.tab, animationSpec = tween(240), label = "tab") { tab ->
+                when (tab) {
+                    Tab.DEVICES -> DevicesTab(vm, padding, gridState)
+                    Tab.WEATHER -> WeatherTab(vm, padding)
+                }
             }
         }
-        vm.openThermostat?.let { key -> ThermostatOverlay(vm, key, state, snackbar) }
+        }
+        vm.openThermostat?.let { key -> ThermostatOverlay(vm, key, state, snackbar, expand) }
         }
     }
 }
 
+/** How far the dashboard sinks (as a fraction of its size) while a thermostat is open on top of it. */
+private const val DEPTH = 0.05f
+
+/** One line of the dashboard grid. Keeping them in a flat list is what lets a tile be found and scrolled to. */
+private sealed interface DashRow {
+    val key: String
+
+    data class Note(val message: String, val note: String?, val error: Boolean, override val key: String) : DashRow
+    data object Worlds : DashRow { override val key = "worlds" }
+    data object NewHome : DashRow { override val key = "new-home" }
+    data object Empty : DashRow { override val key = "empty" }
+    data class Header(val home: Home?, val count: Int, val expanded: Boolean, val summary: String?) : DashRow {
+        override val key get() = "home:${home?.id ?: NO_HOME}"
+    }
+    data class Dev(val d: com.ezstats.android.Device) : DashRow {
+        override val key get() = "dev:${d.key}"
+    }
+}
+
 @Composable
-private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
+private fun DevicesTab(vm: EzViewModel, padding: PaddingValues, gridState: LazyGridState) {
     val state = vm.data ?: return
     val scope = rememberCoroutineScope()
     var newHome by remember { mutableStateOf(false) }
@@ -578,7 +635,66 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
         }
     val order = mapOf("thermostat" to 0, "unit" to 1, "equipment" to 2, "instrument" to 3, "vent" to 4)
 
+    val rows = buildList<DashRow> {
+        vm.banner?.let { add(DashRow.Note(it, "Trying again…", true, "banner")) }
+        if (!state.writable) {
+            add(
+                DashRow.Note(
+                    (state.readOnlyReason ?: "Changing devices is not available.") +
+                        " You can still rename devices and sort them into homes here.",
+                    null, false, "readonly",
+                ),
+            )
+        }
+        if (state.worlds.isNotEmpty()) add(DashRow.Worlds)
+        add(DashRow.NewHome)
+        if (state.devices.isEmpty()) add(DashRow.Empty)
+        sections.forEach { (home, list) ->
+            val expanded = state.homes.isEmpty() || (home?.id ?: NO_HOME) !in vm.collapsed
+            if (state.homes.isNotEmpty()) add(DashRow.Header(home, list.size, expanded, homeSummary(list)))
+            if (expanded) list.sortedBy { order[it.kind] ?: 9 }.forEach { add(DashRow.Dev(it)) }
+        }
+    }
+
+    // The full-screen thermostat asks for its tile to be brought into view before it shrinks back into it:
+    // the device may have been moved to another home, which may be folded shut or far down the list.
+    val latestRows by rememberUpdatedState(rows)
+    val latestState by rememberUpdatedState(state)
+    DisposableEffect(vm, gridState) {
+        vm.revealTile = reveal@{ key ->
+            val s = latestState
+            val dev = s.devices.firstOrNull { it.key == key } ?: return@reveal
+            if (s.homes.isNotEmpty()) {
+                val homeId = s.homes.firstOrNull { it.id == dev.home }?.id ?: NO_HOME
+                if (homeId in vm.collapsed) {
+                    vm.toggleHome(homeId)
+                    withFrameNanos { }
+                    withFrameNanos { }
+                }
+            }
+            val itemKey = "dev:$key"
+            fun info() = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == itemKey }
+            fun fits(i: LazyGridItemInfo): Boolean {
+                val l = gridState.layoutInfo
+                return i.offset.y >= l.beforeContentPadding && i.offset.y + i.size.height <= l.viewportEndOffset - l.afterContentPadding
+            }
+            val seen = info()
+            if (seen != null && fits(seen)) return@reveal
+            val index = latestRows.indexOfFirst { it.key == itemKey }
+            if (index < 0) return@reveal
+            vm.tileBounds.remove(key) // it moves: wait for it to report where it ended up
+            gridState.scrollToItem(index)
+            gridState.scrollBy(-gridState.layoutInfo.viewportSize.height / 6f) // leave some room above it
+            repeat(24) {
+                if (info() != null && vm.tileBounds.containsKey(key)) return@reveal
+                withFrameNanos { }
+            }
+        }
+        onDispose { vm.revealTile = null }
+    }
+
     LazyVerticalGrid(
+        state = gridState,
         columns = GridCells.Adaptive(340.dp),
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp,
@@ -589,123 +705,52 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        vm.banner?.let { message ->
-            item(span = { GridItemSpan(maxLineSpan) }, key = "banner") {
-                Banner(message, "Trying again…", error = true)
-            }
-        }
-        if (!state.writable) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "readonly") {
-                Banner(
-                    (state.readOnlyReason ?: "Changing devices is not available.") +
-                        " You can still rename devices and sort them into homes here.",
-                    null,
-                    error = false,
-                )
-            }
-        }
-
-        if (state.worlds.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "worlds") {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        state.worlds.forEach { w ->
-                            val units = LocalUnits.current
-                            Column {
-                                Text(w.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                val parts = mutableListOf<String>()
-                                w.season?.let {
-                                    parts += "${cap(it)}, day ${w.seasonDay} of ${w.seasonDays}" + if (w.seasonPaused) " (paused)" else ""
-                                }
-                                w.airF?.let { parts += "${units.one(it)}°${units.symbol} outside" + (w.weather?.let { s -> ", ${s.lowercase()}" } ?: "") }
-                                if (parts.isNotEmpty()) {
-                                    Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        item(span = { GridItemSpan(maxLineSpan) }, key = "new-home") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                if (state.homes.isNotEmpty()) {
-                    val ids = sections.map { it.first?.id ?: NO_HOME }
-                    val allCollapsed = ids.all { it in vm.collapsed }
-                    TextButton(onClick = { vm.setAllCollapsed(ids, !allCollapsed) }) {
-                        Icon(if (allCollapsed) Icons.Rounded.UnfoldMore else Icons.Rounded.UnfoldLess, null, Modifier.size(18.dp))
-                        Spacer(Modifier.size(8.dp))
-                        Text(if (allCollapsed) "Expand all" else "Collapse all")
-                    }
-                    Spacer(Modifier.size(8.dp))
-                }
-                OutlinedButton(onClick = { newHome = true }) {
-                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("New home")
-                }
-            }
-        }
-
-        if (state.devices.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
-                Column(
-                    Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(Icons.Rounded.Thermostat, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(12.dp))
-                    Text("No devices yet", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "In game, stand at a thermostat and run /ezstats own to claim it.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
+        items(
+            rows,
+            key = { it.key },
+            span = { row -> if (row is DashRow.Dev) GridItemSpan(1) else GridItemSpan(maxLineSpan) },
+        ) { row ->
+            Box(Modifier.animateItem(fadeInSpec = tween(260), placementSpec = Motion.place, fadeOutSpec = tween(160))) {
+                when (row) {
+                    is DashRow.Note -> Banner(row.message, row.note, row.error)
+                    DashRow.Worlds -> WorldsCard(state)
+                    DashRow.NewHome -> NewHomeRow(
+                        showToggle = state.homes.isNotEmpty(),
+                        allCollapsed = sections.all { (it.first?.id ?: NO_HOME) in vm.collapsed },
+                        onToggleAll = { collapse -> vm.setAllCollapsed(sections.map { it.first?.id ?: NO_HOME }, collapse) },
+                        onNewHome = { newHome = true },
                     )
-                }
-            }
-        }
-
-        sections.forEach { (home, list) ->
-            val sectionId = home?.id ?: NO_HOME
-            val expanded = state.homes.isEmpty() || sectionId !in vm.collapsed
-            if (state.homes.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "home:$sectionId") {
-                    var menu by remember { mutableStateOf(false) }
-                    HomeHeader(
-                        title = home?.name ?: "No home",
-                        count = list.size,
-                        expanded = expanded,
-                        summary = homeSummary(list),
-                        onToggle = { vm.toggleHome(sectionId) },
-                    ) {
-                        if (home != null) {
-                            Box {
-                                IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${home.name}") }
-                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text("Rename home") },
-                                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                                        onClick = { menu = false; renameHome = home },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Delete home") },
-                                        leadingIcon = { Icon(Icons.Rounded.Delete, null) },
-                                        onClick = { menu = false; deleteHome = home },
-                                    )
+                    DashRow.Empty -> EmptyDevices()
+                    is DashRow.Header -> {
+                        var menu by remember { mutableStateOf(false) }
+                        val home = row.home
+                        HomeHeader(
+                            title = home?.name ?: "No home",
+                            count = row.count,
+                            expanded = row.expanded,
+                            summary = row.summary,
+                            onToggle = { vm.toggleHome(home?.id ?: NO_HOME) },
+                        ) {
+                            if (home != null) {
+                                Box {
+                                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${home.name}") }
+                                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Rename home") },
+                                            leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                            onClick = { menu = false; renameHome = home },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete home") },
+                                            leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                                            onClick = { menu = false; deleteHome = home },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
-            if (expanded) {
-                items(list.sortedBy { order[it.kind] ?: 9 }, key = { it.key }) { d ->
-                    Box(Modifier.animateItem()) { DeviceCard(vm, d, state) }
+                    is DashRow.Dev -> DeviceCard(vm, row.d, state)
                 }
             }
         }
@@ -724,6 +769,68 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues) {
             "Delete",
             onDismiss = { deleteHome = null },
             onConfirm = { scope.launch { vm.deleteHome(h.id)?.let { vm.messages.tryEmit(it) } } },
+        )
+    }
+}
+
+@Composable
+private fun WorldsCard(state: com.ezstats.android.StateData) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val units = LocalUnits.current
+            state.worlds.forEach { w ->
+                Column {
+                    Text(w.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    val parts = mutableListOf<String>()
+                    w.season?.let {
+                        parts += "${cap(it)}, day ${w.seasonDay} of ${w.seasonDays}" + if (w.seasonPaused) " (paused)" else ""
+                    }
+                    w.airF?.let { parts += "${units.one(it)}°${units.symbol} outside" + (w.weather?.let { s -> ", ${s.lowercase()}" } ?: "") }
+                    if (parts.isNotEmpty()) {
+                        Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewHomeRow(showToggle: Boolean, allCollapsed: Boolean, onToggleAll: (Boolean) -> Unit, onNewHome: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        if (showToggle) {
+            TextButton(onClick = { onToggleAll(!allCollapsed) }) {
+                Icon(if (allCollapsed) Icons.Rounded.UnfoldMore else Icons.Rounded.UnfoldLess, null, Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text(if (allCollapsed) "Expand all" else "Collapse all")
+            }
+            Spacer(Modifier.size(8.dp))
+        }
+        OutlinedButton(onClick = onNewHome) {
+            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text("New home")
+        }
+    }
+}
+
+@Composable
+private fun EmptyDevices() {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(Icons.Rounded.Thermostat, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(12.dp))
+        Text("No devices yet", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "In game, stand at a thermostat and run /ezstats own to claim it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -750,7 +857,7 @@ private fun HomeHeader(
     onToggle: () -> Unit,
     menu: @Composable () -> Unit,
 ) {
-    val rotation by animateFloatAsState(if (expanded) 0f else -90f, label = "chevron")
+    val rotation by animateFloatAsState(if (expanded) 0f else -90f, Motion.quick, label = "chevron")
     Column(
         Modifier
             .fillMaxWidth()
