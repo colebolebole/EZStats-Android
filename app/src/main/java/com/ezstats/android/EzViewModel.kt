@@ -6,9 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class Status { CHECKING, OFFLINE, LOGIN, READY }
 
@@ -60,7 +62,48 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         if (active != null) {
             bind()
             check()
+            showCached()
         }
+    }
+
+    // --- the last state we saw -----------------------------------------------------------------------------
+
+    private var lastSnapshot = 0L
+
+    /**
+     * Shows the dashboard as it was when the app was last open, straight away, while the real state is fetched.
+     * Whichever arrives first wins; the fetched state replaces it a moment later.
+     */
+    private fun showCached() {
+        val server = active ?: return
+        if (store.cookie(server.id) == null) return // never signed in here: nothing worth showing
+        viewModelScope.launch(Dispatchers.Default) {
+            val raw = store.readSnapshot(server.id) ?: return@launch
+            val cached = try {
+                parseState(raw)
+            } catch (e: Exception) {
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                if (active == server && data == null && status == Status.CHECKING) {
+                    data = cached
+                    status = Status.READY
+                }
+            }
+        }
+    }
+
+    /** Remembers the state for the next launch, in the background and at most every ten seconds. */
+    private fun saveSnapshot(server: Server?, raw: String, force: Boolean = false) {
+        if (server == null) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastSnapshot < 10_000) return
+        lastSnapshot = now
+        viewModelScope.launch(Dispatchers.IO) { store.writeSnapshot(server.id, raw) }
+    }
+
+    private fun forgetSnapshot() {
+        active?.let { s -> viewModelScope.launch(Dispatchers.IO) { store.deleteSnapshot(s.id) } }
     }
 
     // --- servers ----------------------------------------------------------------------------------
@@ -144,14 +187,20 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         statusError = null
         viewModelScope.launch {
             try {
-                val fresh = a.state()
+                val fresh = a.stateResult()
                 if (active != server) return@launch
-                data = fresh
+                data = fresh.data.shareWith(data)
                 status = Status.READY
+                saveSnapshot(server, fresh.raw, force = true)
             } catch (e: ApiException) {
                 if (active != server) return@launch
                 if (e.status == 401) {
+                    forgetSnapshot()
+                    data = null
                     status = Status.LOGIN
+                } else if (data != null) {
+                    banner = e.message // the last known state is on screen: say it may be out of date
+                    status = Status.READY
                 } else {
                     statusError = e.message
                     status = Status.OFFLINE
@@ -172,11 +221,12 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 call(a)
-                val fresh = a.state()
+                val fresh = a.stateResult()
                 if (active != server) return@launch
-                data = fresh
+                data = fresh.data
                 banner = null
                 status = Status.READY
+                saveSnapshot(server, fresh.raw, force = true)
             } catch (e: ApiException) {
                 loginError = e.message
             } finally {
@@ -189,6 +239,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         val a = api ?: return
         viewModelScope.launch {
             a.logout()
+            forgetSnapshot()
             resetSession()
             status = Status.LOGIN
         }
@@ -196,6 +247,7 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun sessionEnded() {
         api?.clearCookie()
+        forgetSnapshot()
         resetSession()
         loginError = "Your session ended. Sign in again."
         status = Status.LOGIN
@@ -221,13 +273,17 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
         val a = api ?: return
         val server = active
         try {
-            val fresh = a.state()
+            val result = a.stateResult()
             if (active != server) return
-            val mine = data?.devices?.associateBy { it.key }.orEmpty()
-            data = if (inFlight.isEmpty()) fresh else fresh.copy(
-                devices = fresh.devices.map { if (inFlight.containsKey(it.key)) mine[it.key] ?: it else it },
-            )
+            var next = result.data
+            if (inFlight.isNotEmpty()) {
+                val mine = data?.devices?.associateBy { it.key }.orEmpty()
+                next = next.copy(devices = next.devices.map { if (inFlight.containsKey(it.key)) mine[it.key] ?: it else it })
+            }
+            // Same objects wherever nothing changed, so the screen only redraws what actually did.
+            data = next.shareWith(data)
             banner = null
+            saveSnapshot(server, result.raw)
         } catch (e: ApiException) {
             if (active != server) return
             if (e.status == 401) sessionEnded() else banner = e.message

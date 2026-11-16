@@ -503,7 +503,7 @@ fun MainScreen(vm: EzViewModel, snackbar: SnackbarHostState) {
     }
 
     CompositionLocalProvider(
-        LocalUnits provides UnitFmt(state.units == "C"),
+        LocalUnits provides remember(state.units) { UnitFmt(state.units == "C") },
         LocalWritable provides state.writable,
     ) {
         // The dashboard stays composed under the thermostat view, so it is exactly where you left it.
@@ -750,7 +750,7 @@ private fun DevicesTab(vm: EzViewModel, padding: PaddingValues, gridState: LazyG
                             }
                         }
                     }
-                    is DashRow.Dev -> DeviceCard(vm, row.d, state)
+                    is DashRow.Dev -> DeviceCard(vm, row.d, state.homes, row.d.weather?.let { state.stations[it.station] })
                 }
             }
         }

@@ -1,5 +1,6 @@
 package com.ezstats.android
 
+import androidx.compose.runtime.Immutable
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -23,10 +24,13 @@ private fun JSONArray?.strings(): List<String> =
 
 // --- weather ------------------------------------------------------------------------------------------
 
+@Immutable
 data class AirQuality(val aqi: Int, val band: String)
 
+@Immutable
 data class Wind(val speedMs: Double?, val level: String, val from: String?)
 
+@Immutable
 data class ForecastDay(
     val daysAhead: Int,
     val highF: Double?,
@@ -39,6 +43,7 @@ data class ForecastDay(
     val wind: Wind?,
 )
 
+@Immutable
 data class Station(
     val key: String,
     val label: String,
@@ -56,6 +61,7 @@ data class Station(
     val forecast: List<ForecastDay>,
 )
 
+@Immutable
 data class WeatherLink(val station: String, val distance: Int?)
 
 private fun parseAir(o: JSONObject?): AirQuality? =
@@ -91,6 +97,7 @@ private fun parseStation(o: JSONObject): Station = Station(
     },
 )
 
+@Immutable
 data class WeatherData(val units: String, val generatedAt: Long, val stations: List<Station>)
 
 fun parseWeather(json: String): WeatherData {
@@ -104,6 +111,7 @@ fun parseWeather(json: String): WeatherData {
 
 // --- devices ------------------------------------------------------------------------------------------
 
+@Immutable
 data class Cold(
     val doorOpen: Boolean,
     val frost: Double?,
@@ -114,6 +122,7 @@ data class Cold(
     val chillerF: Double?,
 )
 
+@Immutable
 data class Reading(
     val tempF: Double?,
     val humidity: Double?,
@@ -125,6 +134,7 @@ data class Reading(
 )
 
 /** One EZvac device. Which fields are set depends on [kind]; the rest stay at their defaults. */
+@Immutable
 data class Device(
     val key: String,
     val world: String,
@@ -238,8 +248,10 @@ private fun parseDevice(o: JSONObject): Device {
     )
 }
 
+@Immutable
 data class Home(val id: String, val name: String)
 
+@Immutable
 data class World(
     val name: String,
     val season: String?,
@@ -250,6 +262,7 @@ data class World(
     val weather: String?,
 )
 
+@Immutable
 data class StateData(
     val player: String,
     val weatherTab: Boolean,
@@ -291,5 +304,27 @@ fun parseState(json: String): StateData {
             )
         },
         stations = stations,
+    )
+}
+
+// --- sharing unchanged objects between two reads ----------------------------------------------------------------
+
+private fun <T> List<T>.reuse(old: List<T>): List<T> = if (this == old) old else this
+
+/**
+ * This state, but reusing the very same objects as [old] wherever nothing changed. A poll that changes one
+ * thermostat then hands every other card the same instances as before, which Compose can skip without even looking.
+ */
+fun StateData.shareWith(old: StateData?): StateData {
+    if (old == null) return this
+    if (this == old) return old
+    val oldDevices = old.devices.associateBy { it.key }
+    val oldStations = old.stations
+    val sharedStations = stations.mapValues { (key, s) -> oldStations[key]?.takeIf { it == s } ?: s }
+    return copy(
+        homes = homes.reuse(old.homes),
+        devices = devices.map { d -> oldDevices[d.key]?.takeIf { it == d } ?: d }.reuse(old.devices),
+        worlds = worlds.reuse(old.worlds),
+        stations = if (sharedStations == oldStations) oldStations else sharedStations,
     )
 }

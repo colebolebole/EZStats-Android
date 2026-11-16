@@ -262,6 +262,28 @@ class EzApiTest {
     }
 
     @Test
+    fun unchangedObjectsAreSharedBetweenReads() = runBlocking {
+        sessions += "abc123"
+        val a = api("abc123")
+        val first = a.state()
+        val again = a.state()
+        assertEquals(first, again)
+        assertTrue("an identical read reuses the old state", again.shareWith(first) === first)
+
+        // One thermostat changes: every other device keeps its object, the changed one is new.
+        val changed = first.copy(devices = first.devices.map { if (it.isThermostat) it.copy(targetF = 70.0) else it })
+        val shared = changed.shareWith(first)
+        assertTrue(shared !== first)
+        assertEquals(70.0, shared.devices.first { it.isThermostat }.targetF!!, 0.0)
+        first.devices.filterNot { it.isThermostat }.forEach { old ->
+            assertTrue(shared.devices.first { it.key == old.key } === old)
+        }
+        assertTrue(shared.homes === first.homes)
+        assertTrue(shared.worlds === first.worlds)
+        assertTrue(shared.stations === first.stations)
+    }
+
+    @Test
     fun urlNormalising() {
         assertEquals("http://192.168.1.10:8765", ServerStore.normalizeUrl(" 192.168.1.10:8765/ "))
         assertEquals("https://stats.example.com", ServerStore.normalizeUrl("https://stats.example.com/"))

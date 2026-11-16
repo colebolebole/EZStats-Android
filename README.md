@@ -25,9 +25,13 @@ Note: over `http://` your password and session cookie are unencrypted. Use an `h
 Requires JDK 17+ and the Android SDK (or open the folder in Android Studio).
 
 ```
-./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease      # optimized (R8, baseline profile): app/build/outputs/apk/release/app-release.apk
+./gradlew assembleDebug        # unoptimized, for debugging: app/build/outputs/apk/debug/app-debug.apk
 ./gradlew testDebugUnitTest    # API client + parsing tests against a mock EZStats server
 ```
+
+The release build is signed with the debug key so it installs over (and keeps the logins of) earlier sideloaded builds.
+Publishing to a store would need a real signing key.
 
 Min Android 8.0 (API 26).
 

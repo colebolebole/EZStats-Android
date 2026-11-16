@@ -38,7 +38,7 @@ class EzApi(
             }
             try {
                 conn.requestMethod = method
-                conn.connectTimeout = 8_000
+                conn.connectTimeout = 6_000
                 conn.readTimeout = 15_000 // a control call can wait up to 5 s on the server
                 conn.instanceFollowRedirects = false
                 conn.setRequestProperty("Accept", "application/json")
@@ -52,11 +52,12 @@ class EzApi(
                 val code = conn.responseCode
                 val stream = if (code >= 400) conn.errorStream else conn.inputStream
                 val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                // Not disconnect()ed on purpose: the body is read in full and closed, so the connection goes back
+                // to the pool and the next poll skips the TCP (and TLS) handshake.
                 Response(code, text, findSessionCookie(conn))
             } catch (e: IOException) {
-                throw ApiException(0, "Can't reach the server (${e.message ?: e.javaClass.simpleName}).")
-            } finally {
                 conn.disconnect()
+                throw ApiException(0, "Can't reach the server (${e.message ?: e.javaClass.simpleName}).")
             }
         }
 
@@ -122,21 +123,32 @@ class EzApi(
 
     // --- data ---------------------------------------------------------------------------------------
 
-    suspend fun state(): StateData {
+    /** The parsed state, and the JSON it came from (kept to show instantly on the next launch). */
+    class StateResult(val data: StateData, val raw: String)
+
+    // Parsing happens on a background thread: a big state parsed on the main thread every two seconds is a
+    // dropped frame every two seconds.
+    suspend fun stateResult(): StateResult {
         val r = checked(request("GET", "/api/state"))
-        return try {
-            parseState(r.body)
-        } catch (e: Exception) {
-            throw ApiException(500, "That doesn't look like an EZStats server.")
+        return withContext(Dispatchers.Default) {
+            try {
+                StateResult(parseState(r.body), r.body)
+            } catch (e: Exception) {
+                throw ApiException(500, "That doesn't look like an EZStats server.")
+            }
         }
     }
 
+    suspend fun state(): StateData = stateResult().data
+
     suspend fun weather(): WeatherData {
         val r = checked(request("GET", "/api/weather"))
-        return try {
-            parseWeather(r.body)
-        } catch (e: Exception) {
-            throw ApiException(500, "The server sent weather this app can't read.")
+        return withContext(Dispatchers.Default) {
+            try {
+                parseWeather(r.body)
+            } catch (e: Exception) {
+                throw ApiException(500, "The server sent weather this app can't read.")
+            }
         }
     }
 

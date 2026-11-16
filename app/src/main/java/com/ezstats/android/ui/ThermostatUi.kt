@@ -95,7 +95,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.ezstats.android.Device
 import com.ezstats.android.EzViewModel
+import com.ezstats.android.Home
 import com.ezstats.android.StateData
+import com.ezstats.android.Station
 import kotlinx.coroutines.delay
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -121,11 +123,11 @@ private fun thermostatStatus(d: Device) = if (d.enabled) cap(d.mode) else "Off"
 /** A thermostat on the dashboard: a small read-only dial. Tapping it opens the full-screen view. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ThermostatTile(vm: EzViewModel, d: Device, state: StateData) {
+fun ThermostatTile(vm: EzViewModel, d: Device, homes: List<Home>, station: Station?) {
     val (minF, maxF) = targetRange(d)
     DisposableEffect(d.key) { onDispose { vm.tileBounds.remove(d.key) } }
     DeviceFrame(
-        vm, d, state.homes,
+        vm, d, homes,
         pill = { StatusPill(thermostatStatus(d), thermostatTone(d)) },
         onClick = { vm.openThermostat = d.key },
         modifier = Modifier.onGloballyPositioned { vm.tileBounds[d.key] = unscaled(it.boundsInRoot(), vm) },
@@ -416,15 +418,14 @@ private fun ThermostatControls(vm: EzViewModel, d: Device, state: StateData, mod
             }
         }
 
-        ThermostatWeather(d, state)
+        ThermostatWeather(d, d.weather?.let { state.stations[it.station] })
     }
 }
 
 /** The outdoor conditions of the nearest weather station, with a forecast that opens under it. */
 @Composable
-private fun ThermostatWeather(d: Device, state: StateData) {
+private fun ThermostatWeather(d: Device, station: Station?) {
     val units = LocalUnits.current
-    val station = d.weather?.let { state.stations[it.station] }
     var open by remember(d.key) { mutableStateOf(false) }
     if (station == null) {
         Text(

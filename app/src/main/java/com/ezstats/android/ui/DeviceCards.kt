@@ -50,14 +50,14 @@ import androidx.compose.ui.unit.dp
 import com.ezstats.android.Device
 import com.ezstats.android.EzViewModel
 import com.ezstats.android.Home
-import com.ezstats.android.StateData
+import com.ezstats.android.Station
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** A device's card on the dashboard: a thermostat opens full screen when tapped. */
 @Composable
-fun DeviceCard(vm: EzViewModel, d: Device, state: StateData) {
-    if (d.isThermostat) ThermostatTile(vm, d, state) else DeviceTile(vm, d, state.homes)
+fun DeviceCard(vm: EzViewModel, d: Device, homes: List<Home>, station: Station?) {
+    if (d.isThermostat) ThermostatTile(vm, d, homes, station) else DeviceTile(vm, d, homes)
 }
 
 // --- the frame every device shares ----------------------------------------------------------------------

@@ -11,12 +11,17 @@ data class Server(val id: String, val name: String, val url: String)
 /** Persists the list of EZStats servers and which one is currently selected. */
 class ServerStore(context: Context) {
 
-    private val prefs = context.applicationContext
-        .getSharedPreferences("servers", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("servers", Context.MODE_PRIVATE)
+
+    /** The parsed list, kept so it isn't re-read from JSON every time something asks which server is active. */
+    @Volatile
+    private var cache: List<Server>? = null
 
     fun list(): List<Server> {
-        val raw = prefs.getString(KEY_SERVERS, null) ?: return emptyList()
-        return try {
+        cache?.let { return it }
+        val raw = prefs.getString(KEY_SERVERS, null)
+        val parsed = if (raw == null) emptyList() else try {
             val arr = JSONArray(raw)
             (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
@@ -25,6 +30,8 @@ class ServerStore(context: Context) {
         } catch (e: Exception) {
             emptyList()
         }
+        cache = parsed
+        return parsed
     }
 
     private fun save(servers: List<Server>) {
@@ -32,7 +39,37 @@ class ServerStore(context: Context) {
         servers.forEach {
             arr.put(JSONObject().put("id", it.id).put("name", it.name).put("url", it.url))
         }
+        cache = servers
         prefs.edit().putString(KEY_SERVERS, arr.toString()).apply()
+    }
+
+    // --- the last state we saw, so the next launch can show something at once ------------------------------
+
+    private fun snapshotFile(id: String) = java.io.File(appContext.filesDir, "state-$id.json")
+
+    /** The last state JSON received from this server, or null. Reads a file: call it off the main thread. */
+    fun readSnapshot(id: String): String? = try {
+        snapshotFile(id).takeIf { it.isFile }?.readText()
+    } catch (e: Exception) {
+        null
+    }
+
+    fun writeSnapshot(id: String, json: String) {
+        try {
+            val file = snapshotFile(id)
+            val tmp = java.io.File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(json)
+            tmp.renameTo(file) // never leaves a half-written file behind
+        } catch (e: Exception) {
+            // a cache that can't be written is just a cache that isn't there
+        }
+    }
+
+    fun deleteSnapshot(id: String) {
+        try {
+            snapshotFile(id).delete()
+        } catch (e: Exception) {
+        }
     }
 
     fun active(): Server? {
@@ -76,6 +113,7 @@ class ServerStore(context: Context) {
 
     fun delete(id: String) {
         setCookie(id, null)
+        deleteSnapshot(id)
         val remaining = list().filterNot { it.id == id }
         save(remaining)
         if (prefs.getString(KEY_ACTIVE, null) == id) {

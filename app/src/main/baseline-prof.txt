@@ -1,0 +1,4 @@
+# Baseline profile: tells Android to compile the app's own code ahead of time, so it starts and scrolls without
+# first running through the interpreter. Compose's own libraries ship their profiles, which are merged in.
+HSPLcom/ezstats/android/**;->**(**)**
+Lcom/ezstats/android/**;
