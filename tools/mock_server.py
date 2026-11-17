@@ -122,6 +122,9 @@ stations = [
 def station_json(s):
     t = time.time() - started
     out = {k: v for k, v in s.items() if k not in ("base", "seed")}
+    # In-game time of day in ticks (EZStats 0.7.4+): 20 ticks a second, a day every 20 minutes, and each world
+    # starting at a different hour, so every phase of the day shows up on the weather tab.
+    out["worldTime"] = int(t * 20 + (sum(map(ord, s["world"])) % 4) * 6000) % 24000
     if s["working"]:
         out["outdoorF"] = round(s["base"] + 4 * math.sin(t / 90 + s["seed"]), 1)
         rnd = random.Random(s["seed"])

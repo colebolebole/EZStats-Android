@@ -25,6 +25,24 @@ data class ForecastDay(
     val wind: Wind?,
 )
 
+/** Where the sun is in a Minecraft day. */
+enum class DayPhase { SUNRISE, DAY, SUNSET, NIGHT }
+
+/**
+ * The phase for an in-game time of day in ticks (0 = sunrise/6:00, 6000 = noon, 12000 = sunset/18:00, 18000 = midnight).
+ * Sunrise is the last 1500 ticks of the night and the first 1000 of the day, sunset the 2000 around dusk, and the sky
+ * is dark in between, so each of the three lasts a minute or two of real time.
+ */
+fun dayPhaseOf(ticks: Int): DayPhase {
+    val t = ((ticks % 24000) + 24000) % 24000
+    return when {
+        t >= 22500 || t < 1000 -> DayPhase.SUNRISE
+        t < 11500 -> DayPhase.DAY
+        t < 13500 -> DayPhase.SUNSET
+        else -> DayPhase.NIGHT
+    }
+}
+
 @Immutable
 data class Station(
     val key: String,
@@ -41,6 +59,11 @@ data class Station(
     val wind: Wind?,
     val air: AirQuality?,
     val forecast: List<ForecastDay>,
+    /**
+     * The time of day in the station's world (EZStats 0.7.4+). Kept as a phase, not as ticks, so it only changes when the
+     * sun passes a threshold and a station isn't redrawn on every weather read. Null when the server doesn't say.
+     */
+    val phase: DayPhase? = null,
 ) {
     /** Today's forecast, or the nearest day there is. */
     val today: ForecastDay? get() = forecast.firstOrNull { it.daysAhead == 0 } ?: forecast.firstOrNull()

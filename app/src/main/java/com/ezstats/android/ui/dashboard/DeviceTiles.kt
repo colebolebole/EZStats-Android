@@ -169,7 +169,7 @@ private fun ThermostatTile(d: Device, station: Station?, onClick: (() -> Unit)?,
                 d.humidity?.let { Chip(Icons.Rounded.WaterDrop, "${it.roundToInt()}%") }
                 Chip(Icons.Rounded.HeatPump, "${d.runningUnits}/${d.totalUnits} running")
                 station?.outdoorF?.let { t ->
-                    Chip(station.today?.let { skyIcon(it.sky) } ?: skyIcon(""), "${units.whole(t)} outside")
+                    Chip(station.today?.let { skyIcon(it.sky, station.phase) } ?: skyIcon(""),"${units.whole(t)} outside")
                 }
             }
             // "Cooling for 12 min" (EZvac Pilot 8+), and its newest finished run, "Heated for 3 min · 11:44 PM" (EZStats 0.7.3+);

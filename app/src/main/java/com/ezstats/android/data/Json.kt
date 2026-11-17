@@ -39,6 +39,7 @@ private fun parseStation(o: JSONObject): Station = Station(
     working = o.flag("working"),
     lightning = o.optInt("lightningStrikes"),
     outdoorF = o.dbl("outdoorF"),
+    phase = o.intOrNull("worldTime")?.let(::dayPhaseOf),
     wind = parseWind(o.optJSONObject("wind")),
     air = parseAir(o.optJSONObject("air")),
     forecast = o.optJSONArray("forecast").objects().map { d ->

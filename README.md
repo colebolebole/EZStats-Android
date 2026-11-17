@@ -44,6 +44,8 @@ the same key, so a new version installs over the old one and keeps your servers,
 **Weather** (if the server has the Weather tab on)
 - Built like a weather app: swipe between stations under a live animated sky (sun, cloud, rain, snow, thunderstorms),
   each with a huge temperature, a summary of today, the days ahead as range bars, and wind, air quality, rain and lightning tiles.
+- Follows the in-game time of day: a clear sky is **Sunny** by day and **Clear** at sunrise, sunset and night, each
+  with its own sky (a low warm sun at sunrise and sunset, a moon and twinkling stars at night).
 - Star the stations you care about and the page shows just those. The list button still shows every station (search,
   filters, favorites first), and tapping one you haven't starred opens it as an extra page.
 
@@ -83,6 +85,7 @@ leaves out whatever an older one doesn't send.
 | Forgot password? | EZStats 0.7.1+ |
 | How long a thermostat has been heating or cooling | EZStats 0.7.2+ on EZvac BETA 1.0 Pilot 8+ |
 | Thermostat run log | EZStats 0.7.3+ |
+| Sunrise, day, sunset and night on the weather skies (and "Sunny") | EZStats 0.7.4+ (older servers keep a daytime sky) |
 | Controlling devices (otherwise the app is read-only) | EZvac BETA 1.0 Pilot 7+ |
 
 ## Building

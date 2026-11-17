@@ -10,6 +10,7 @@ import androidx.compose.material.icons.rounded.HeatPump
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Kitchen
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.Pool
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Settings
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material.icons.rounded.Whatshot
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.ezstats.android.data.DayPhase
 import com.ezstats.android.data.Device
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -138,13 +140,18 @@ val UNIT_STATE = mapOf(
     "filter_spent" to "Filter spent",
 )
 
-fun skyName(sky: String) = SKY[sky] ?: cap(sky.ifBlank { "cloudy" })
+/**
+ * What the sky is called. A clear sky is "Sunny" in the daytime and "Clear" at sunrise, sunset and night; without a
+ * [phase] (an older server doesn't send the time) it is "Clear" as before.
+ */
+fun skyName(sky: String, phase: DayPhase? = null) =
+    if (sky == "clear" && phase == DayPhase.DAY) "Sunny" else SKY[sky] ?: cap(sky.ifBlank { "cloudy" })
 
-fun skyIcon(sky: String): ImageVector = when (sky) {
+fun skyIcon(sky: String, phase: DayPhase? = null): ImageVector = when (sky) {
     "rain" -> Icons.Rounded.WaterDrop
     "snow" -> Icons.Rounded.AcUnit
     "thunder" -> Icons.Rounded.FlashOn
-    "clear" -> Icons.Rounded.WbSunny
+    "clear" -> if (phase == DayPhase.NIGHT) Icons.Rounded.NightsStay else Icons.Rounded.WbSunny
     else -> Icons.Rounded.Cloud
 }
 

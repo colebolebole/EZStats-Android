@@ -251,13 +251,13 @@ private fun OutsideCard(d: Device, station: Station?, onOpen: (() -> Unit)?) {
     val today = station.today
     DetailCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (today != null) Icon(skyIcon(today.sky), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+            if (today != null) Icon(skyIcon(today.sky, station.phase), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("${units.whole(station.outdoorF)} outside", style = MaterialTheme.typography.titleLarge.numeric)
                 Text(
                     listOfNotNull(
-                        today?.let { skyName(it.sky) },
+                        today?.let { skyName(it.sky, station.phase) },
                         today?.let { "H ${units.whole(it.highF)}  L ${units.whole(it.lowF)}" },
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodyMedium,

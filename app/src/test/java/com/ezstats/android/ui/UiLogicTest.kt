@@ -1,6 +1,11 @@
 package com.ezstats.android.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.NightsStay
+import androidx.compose.material.icons.rounded.WbSunny
+import com.ezstats.android.data.DayPhase
 import com.ezstats.android.data.Device
+import com.ezstats.android.data.dayPhaseOf
 import com.ezstats.android.data.ForecastDay
 import com.ezstats.android.data.Run
 import com.ezstats.android.data.Station
@@ -9,6 +14,8 @@ import com.ezstats.android.ui.common.UnitFmt
 import com.ezstats.android.ui.common.clockText
 import com.ezstats.android.ui.common.modeLine
 import com.ezstats.android.ui.common.runText
+import com.ezstats.android.ui.common.skyIcon
+import com.ezstats.android.ui.common.skyName
 import com.ezstats.android.ui.common.spanText
 import com.ezstats.android.ui.common.rubberBand
 import com.ezstats.android.ui.weather.Sky
@@ -89,6 +96,53 @@ class UiLogicTest {
         // A flat week still gets a bar to draw on.
         val flat = listOf(ForecastDay(0, 60.0, 60.0, "clear", 0.0, 0.0, "", null, null))
         assertEquals(59.0 to 61.0, forecastRange(flat))
+    }
+
+    @Test
+    fun theGameDayHasASunriseADaySunsetAndANight() {
+        assertEquals(DayPhase.SUNRISE, dayPhaseOf(23000))
+        assertEquals(DayPhase.SUNRISE, dayPhaseOf(0))
+        assertEquals(DayPhase.SUNRISE, dayPhaseOf(999))
+        assertEquals(DayPhase.DAY, dayPhaseOf(1000))
+        assertEquals(DayPhase.DAY, dayPhaseOf(6000)) // noon
+        assertEquals(DayPhase.DAY, dayPhaseOf(11499))
+        assertEquals(DayPhase.SUNSET, dayPhaseOf(12000))
+        assertEquals(DayPhase.SUNSET, dayPhaseOf(13499))
+        assertEquals(DayPhase.NIGHT, dayPhaseOf(13500))
+        assertEquals(DayPhase.NIGHT, dayPhaseOf(18000)) // midnight
+        assertEquals(DayPhase.NIGHT, dayPhaseOf(22499))
+        // Times past a day, or negative, wrap round.
+        assertEquals(DayPhase.DAY, dayPhaseOf(24000 + 6000))
+        assertEquals(DayPhase.NIGHT, dayPhaseOf(-6000))
+    }
+
+    @Test
+    fun aClearSkyFollowsTheTimeOfDayAndOtherSkiesDoNot() {
+        val clear = station("s")
+        assertEquals(Sky.CLEAR, skyOf(clear)) // no time known: a daytime sky, as before
+        assertEquals(Sky.CLEAR, skyOf(clear.copy(phase = DayPhase.DAY)))
+        assertEquals(Sky.SUNRISE, skyOf(clear.copy(phase = DayPhase.SUNRISE)))
+        assertEquals(Sky.SUNSET, skyOf(clear.copy(phase = DayPhase.SUNSET)))
+        assertEquals(Sky.NIGHT, skyOf(clear.copy(phase = DayPhase.NIGHT)))
+        // Rain stays rain whatever the hour, and an idle station stays grey.
+        assertEquals(Sky.RAIN, skyOf(station("s", sky = "rain").copy(phase = DayPhase.NIGHT)))
+        assertEquals(Sky.OFFLINE, skyOf(station("s", working = false).copy(phase = DayPhase.NIGHT)))
+    }
+
+    @Test
+    fun aClearSkyIsSunnyByDayAndClearOtherwise() {
+        assertEquals("Sunny", skyName("clear", DayPhase.DAY))
+        assertEquals("Clear", skyName("clear", DayPhase.SUNRISE))
+        assertEquals("Clear", skyName("clear", DayPhase.SUNSET))
+        assertEquals("Clear", skyName("clear", DayPhase.NIGHT))
+        assertEquals("Clear", skyName("clear")) // an older server doesn't send the time
+        assertEquals("Rain", skyName("rain", DayPhase.DAY)) // only a clear sky is renamed
+        assertEquals("Cloudy", skyName("cloudy", DayPhase.NIGHT))
+        assertEquals(Icons.Rounded.NightsStay, skyIcon("clear", DayPhase.NIGHT))
+        assertEquals(Icons.Rounded.WbSunny, skyIcon("clear", DayPhase.DAY))
+        // The sentence about today uses the same name.
+        assertTrue(todaySentence(station("s").copy(phase = DayPhase.DAY), UnitFmt(false))!!.startsWith("Sunny today"))
+        assertTrue(todaySentence(station("s").copy(phase = DayPhase.NIGHT), UnitFmt(false))!!.startsWith("Clear today"))
     }
 
     @Test

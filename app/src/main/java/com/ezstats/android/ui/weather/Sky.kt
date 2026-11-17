@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.geometry.Size
+import com.ezstats.android.data.DayPhase
 import com.ezstats.android.data.Station
 import kotlin.math.PI
 import kotlin.math.abs
@@ -31,6 +33,11 @@ import kotlin.math.sin
 /** What the sky is doing, for the backdrop of a station. */
 enum class Sky(val top: Color, val bottom: Color) {
     CLEAR(Color(0xFF1F6FD6), Color(0xFF5FB8F0)),
+
+    // A clear sky at the other times of the in-game day (cloud, rain and snow look the same all day).
+    SUNRISE(Color(0xFF2E3A87), Color(0xFFD98558)),
+    SUNSET(Color(0xFF3B2A74), Color(0xFFD8573F)),
+    NIGHT(Color(0xFF070B1E), Color(0xFF1C2C57)),
     CLOUDY(Color(0xFF4E5D72), Color(0xFF8495AA)),
     RAIN(Color(0xFF22313F), Color(0xFF486580)),
     THUNDER(Color(0xFF17142A), Color(0xFF3C3466)),
@@ -47,8 +54,22 @@ fun skyOf(sky: String?): Sky = when (sky) {
     else -> Sky.CLOUDY
 }
 
-/** The sky behind a station: today's forecast, or a grey one when it isn't forecasting. */
-fun skyOf(s: Station?): Sky = if (s == null || !s.working) Sky.OFFLINE else skyOf(s.today?.sky ?: "cloudy")
+/**
+ * The sky behind a station: today's forecast, or a grey one when it isn't forecasting. A clear sky follows the in-game
+ * time of day in the station's world: sunrise, daytime, sunset or night. Without the time (an older server) it stays
+ * a daytime sky.
+ */
+fun skyOf(s: Station?): Sky {
+    if (s == null || !s.working) return Sky.OFFLINE
+    val sky = skyOf(s.today?.sky ?: "cloudy")
+    if (sky != Sky.CLEAR) return sky
+    return when (s.phase) {
+        DayPhase.SUNRISE -> Sky.SUNRISE
+        DayPhase.SUNSET -> Sky.SUNSET
+        DayPhase.NIGHT -> Sky.NIGHT
+        else -> Sky.CLEAR
+    }
+}
 
 /** A gradient for a small card in this sky's colours (the station list). */
 fun Sky.brush(dark: Boolean): Brush = Brush.linearGradient(listOf(top.dim(dark), bottom.dim(dark)))
@@ -113,6 +134,18 @@ private fun DrawScope.drawSky(sky: Sky, t: Float, alpha: Float) {
     if (alpha <= 0.01f) return
     when (sky) {
         Sky.CLEAR -> sun(t, alpha)
+        Sky.SUNRISE -> {
+            clouds(t, alpha, 0.06f)
+            lowSun(t, alpha, 0.2f) // rises in the east, on the left
+        }
+        Sky.SUNSET -> {
+            clouds(t, alpha, 0.06f)
+            lowSun(t, alpha, 0.8f)
+        }
+        Sky.NIGHT -> {
+            stars(t, alpha)
+            moon(alpha)
+        }
         Sky.CLOUDY -> clouds(t, alpha, 0.10f)
         Sky.RAIN -> {
             clouds(t, alpha, 0.08f)
@@ -162,6 +195,77 @@ private fun DrawScope.sun(t: Float, alpha: Float) {
         }
     }
     drawCircle(Color(0xFFFFF8DD).copy(alpha = 0.9f * alpha), size.minDimension * 0.07f, c)
+}
+
+/** A low sun at the horizon, with a warm glow, a band of light along the bottom and a few slow rays. */
+private fun DrawScope.lowSun(t: Float, alpha: Float, xFraction: Float) {
+    val c = Offset(size.width * xFraction, size.height * 0.34f)
+    val r = size.minDimension * 1.0f
+    drawCircle(
+        Brush.radialGradient(
+            listOf(Color(0xFFFFC27A).copy(alpha = 0.65f * alpha), Color(0xFFFF8A5C).copy(alpha = 0.22f * alpha), Color.Transparent),
+            center = c,
+            radius = r,
+        ),
+        radius = r,
+        center = c,
+    )
+    val bandTop = size.height * 0.45f
+    drawRect(
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color(0xFFFFB074).copy(alpha = 0.22f * alpha)),
+            startY = bandTop,
+            endY = size.height,
+        ),
+        topLeft = Offset(0f, bandTop),
+        size = Size(size.width, size.height - bandTop),
+    )
+    rotate(t * 2f, c) {
+        for (i in 0 until 10) {
+            val a = (i / 10f) * 2 * PI.toFloat()
+            val len = r * (0.5f + 0.12f * sin(t * 0.5f + i))
+            drawLine(
+                Color.White.copy(alpha = 0.06f * alpha),
+                c,
+                Offset(c.x + len * kotlin.math.cos(a), c.y + len * sin(a)),
+                strokeWidth = size.minDimension * 0.045f,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+    drawCircle(Color(0xFFFFE9C2).copy(alpha = 0.95f * alpha), size.minDimension * 0.075f, c)
+}
+
+/** Stars that twinkle, in the upper three quarters of the sky. */
+private fun DrawScope.stars(t: Float, alpha: Float) {
+    for (i in 0 until 90) {
+        val x = hash(i, 20) * size.width
+        val y = hash(i, 21) * size.height * 0.75f
+        val r = 0.8f + hash(i, 22) * 1.8f
+        val twinkle = 0.55f + 0.45f * sin(t * (0.6f + hash(i, 23) * 1.6f) + hash(i, 24) * 6.2832f)
+        drawCircle(Color.White.copy(alpha = (0.35f + 0.55f * hash(i, 25)) * twinkle * alpha), r, Offset(x, y))
+    }
+}
+
+/** A pale moon with a cool glow, in the corner where the sun sits by day. */
+private fun DrawScope.moon(alpha: Float) {
+    val c = Offset(size.width * 0.82f, size.height * 0.1f)
+    val r = size.minDimension * 0.6f
+    drawCircle(
+        Brush.radialGradient(
+            listOf(Color(0xFFBFD0FF).copy(alpha = 0.32f * alpha), Color(0xFF8FA6E8).copy(alpha = 0.10f * alpha), Color.Transparent),
+            center = c,
+            radius = r,
+        ),
+        radius = r,
+        center = c,
+    )
+    val moonR = size.minDimension * 0.065f
+    drawCircle(Color(0xFFEFF3FF).copy(alpha = 0.95f * alpha), moonR, c)
+    // a few faint craters
+    drawCircle(Color(0xFFCBD5F0).copy(alpha = 0.55f * alpha), moonR * 0.22f, Offset(c.x - moonR * 0.3f, c.y - moonR * 0.25f))
+    drawCircle(Color(0xFFCBD5F0).copy(alpha = 0.45f * alpha), moonR * 0.16f, Offset(c.x + moonR * 0.35f, c.y + moonR * 0.2f))
+    drawCircle(Color(0xFFCBD5F0).copy(alpha = 0.40f * alpha), moonR * 0.12f, Offset(c.x - moonR * 0.1f, c.y + moonR * 0.45f))
 }
 
 private fun DrawScope.clouds(t: Float, alpha: Float, opacity: Float) {

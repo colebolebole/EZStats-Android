@@ -310,6 +310,16 @@ class EzApiTest {
     }
 
     @Test
+    fun stationTimeOfDayIsReadAndAbsentWhenTheServerIsOlder() = runBlocking {
+        sessions += "abc123"
+        val a = api("abc123")
+        // 13200 ticks is the end of dusk.
+        assertEquals(DayPhase.SUNSET, a.weather().stations.single().phase)
+        // The state's own stations come from the same parser: no worldTime, no phase.
+        assertNull(a.state().stations.getValue("wx1").phase)
+    }
+
+    @Test
     fun codesAndPasswordsAreChecked() {
         assertEquals("12345678", codeDigits(" 1234 5678 "))
         assertEquals("12345678", codeDigits("1234-5678"))
@@ -474,7 +484,7 @@ class EzApiTest {
 
         private const val WEATHER = """
         {"generatedAt":5,"units":"F","stations":[{"key":"wx1","label":"Tower","world":"world","x":0,"y":70,"z":0,
-          "enabled":true,"intact":true,"working":true,"lightningStrikes":0,"areaRadius":128,"outdoorF":71.0,
+          "enabled":true,"intact":true,"working":true,"lightningStrikes":0,"areaRadius":128,"outdoorF":71.0,"worldTime":13200,
           "forecast":[{"daysAhead":0,"highF":80.0,"lowF":60.0,"sky":"clear","rain":0.0,"thunder":0.0,"note":""},
                       {"daysAhead":1,"highF":70.0,"lowF":55.0,"sky":"rain","rain":0.6,"thunder":0.1,"note":"Wet"}]}]}
         """

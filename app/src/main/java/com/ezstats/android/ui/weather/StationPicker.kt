@@ -254,7 +254,7 @@ private fun StationCard(
                         Text(s.world ?: "Unknown world", style = MaterialTheme.typography.labelLarge, color = OnSkyMuted)
                     }
                     Text(
-                        if (s.working) today?.let { skyName(it.sky) } ?: "" else idleWhy(s),
+                        if (s.working) today?.let { skyName(it.sky, s.phase) } ?: "" else idleWhy(s),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         maxLines = 1,
@@ -265,7 +265,7 @@ private fun StationCard(
                 Column(horizontalAlignment = Alignment.End) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (today != null && s.working) {
-                            Icon(skyIcon(today.sky), null, Modifier.size(22.dp), tint = Color.White)
+                            Icon(skyIcon(today.sky, s.phase), null, Modifier.size(22.dp), tint = Color.White)
                             Spacer(Modifier.width(6.dp))
                         }
                         Text(

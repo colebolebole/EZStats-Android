@@ -101,7 +101,7 @@ fun idleWord(s: Station) = when {
 /** A sentence about today, from what the station knows: "Clear. Gusty afternoon. Wind NW at 12 mph." */
 internal fun todaySentence(s: Station, units: UnitFmt): String? {
     val today = s.today ?: return null
-    val parts = mutableListOf(skyName(today.sky) + " today")
+    val parts = mutableListOf(skyName(today.sky, s.phase) + " today")
     if (today.note.isNotBlank()) parts += today.note.trim().trimEnd('.')
     if (today.rain >= 0.2 && today.sky != "clear") parts += "${(today.rain * 100).roundToInt()}% chance of rain"
     if (today.thunder >= 0.2) parts += "thunder likely"
@@ -157,7 +157,7 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
                 if (station.outdoorF != null) Text("°", style = HeroNumber.copy(fontSize = if (short) 56.sp else 84.sp), color = OnSky)
             }
             Text(
-                if (station.working) today?.let { skyName(it.sky) } ?: "Outside now" else idleWord(station),
+                if (station.working) today?.let { skyName(it.sky, station.phase) } ?: "Outside now" else idleWord(station),
                 style = MaterialTheme.typography.titleLarge,
                 color = OnSky,
             )
