@@ -170,13 +170,51 @@ class GroupsTest {
     }
 
     @Test
-    fun everyHomeIsOfferedWithItsPath() {
+    fun everyGroupIsOfferedWithItsPathForPlacingADevice() {
+        // A device can be in an organization or a folder as well as a home (EZStats 0.8.1), in the order the tree shows.
         assertEquals(
-            listOf("home1" to "Acme Co › Kyleton › House 1", "home2" to "Acme Co › Depot › Warehouse", "home3" to "Cottage"),
-            homeChoices(sample).map { it.first.id to it.second },
+            listOf(
+                "org1" to "Acme Co",
+                "fold1" to "Acme Co › Kyleton",
+                "home1" to "Acme Co › Kyleton › House 1",
+                "fold2" to "Acme Co › Depot",
+                "home2" to "Acme Co › Depot › Warehouse",
+                "fold3" to "Misc",
+                "home3" to "Cottage",
+            ),
+            placeChoices(sample).map { it.first.id to it.second },
         )
-        // A home that can't be reached from the top is still offered.
+        // A group whose parent is missing is still offered, at the top.
         val odd = state(homes = listOf(home("h1", "Cottage", "gone")))
-        assertEquals(listOf("h1" to "Cottage"), homeChoices(odd).map { it.first.id to it.second })
+        assertEquals(listOf("h1" to "Cottage"), placeChoices(odd).map { it.first.id to it.second })
+        assertEquals(listOf(GroupKind.ORG, GroupKind.FOLDER, GroupKind.HOME), placeChoices(sample).map { it.first.kind }.distinct())
+    }
+
+    @Test
+    fun devicesCanBeStraightInAnOrganizationOrFolderAndComeBeforeItsSubgroups() {
+        val s = state(
+            orgs = listOf(org("org1", "Acme Co")),
+            folders = listOf(folder("fold1", "Kyleton", "org1")),
+            homes = listOf(home("home1", "House 1", "fold1")),
+            devices = listOf(device("inOrg", "org1"), device("inFolder", "fold1"), device("inHome", "home1"), device("nowhere")),
+        )
+        // Each group's own devices come right after its heading, then its sub-groups: devices listed below a sub-group's
+        // heading would look as if they were inside it.
+        assertEquals(
+            listOf("[Acme Co]", "inOrg", "  [Kyleton]", "inFolder", "    [House 1]", "inHome", "[No home]", "nowhere"),
+            describe(flattenGroups(s, emptySet())),
+        )
+        val headers = flattenGroups(s, emptySet()).filterIsInstance<DashEntry.Header>().associateBy { it.group?.id }
+        assertEquals(listOf("inOrg", "inFolder", "inHome"), headers.getValue("org1").devices.map { it.key }) // the count covers all of it
+        assertEquals(listOf("inFolder", "inHome"), headers.getValue("fold1").devices.map { it.key })
+        assertEquals(listOf("inHome"), headers.getValue("home1").devices.map { it.key })
+        // Folding the folder hides the device in it as well as the home below.
+        assertEquals(
+            listOf("[Acme Co]", "inOrg", "  [Kyleton]", "[No home]", "nowhere"),
+            describe(flattenGroups(s, setOf("fold1"))),
+        )
+        // Only a device in none of the groups is "in no group".
+        val onlyGrouped = state(orgs = listOf(org("org1", "Acme Co")), devices = listOf(device("inOrg", "org1")))
+        assertEquals(listOf("[Acme Co]", "inOrg"), describe(flattenGroups(onlyGrouped, emptySet())))
     }
 }

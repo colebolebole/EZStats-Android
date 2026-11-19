@@ -46,16 +46,18 @@ latest release, with no information about you or your phone.
 - **Heat pumps, ACs, furnaces and boilers** switch on and off right on their tile. Thermometers, sensors, monitors and
   vents show their readings.
 - **Organizations, folders and homes:** arrange your devices in a tree (an organization holds folders and homes, a
-  folder holds more, a home holds devices). ⋮ on the Devices page has **New organization**, **New folder** and **New
+  folder holds more, a home holds devices; with EZStats 0.8.1 a device can also sit straight in an organization or
+  folder). ⋮ on the Devices page has **New organization**, **New folder** and **New
   home** (a folder or home asks where it goes: **Inside**); each group's own ⋮ renames, moves (with everything in it)
-  or deletes it (deleting only removes that group: what was in it moves up a level). Everything folds away to keep things
-  tidy. Needs EZStats 0.8.0+; an older server just has homes.
+  or deletes it (deleting only removes that group: its devices, folders and homes move up a level). Everything folds away
+  to keep things tidy. Needs EZStats 0.8.0+; an older server just has homes.
 - **Arrange:** choose **Arrange** in ⋮ and a bar says so (with **Done**; Back also leaves it). Every device is outlined
   and dimmed with ◀ ▶ and its place ("2 of 5") over it, and every organization, folder and home is highlighted with ▲ ▼,
   to move it one place. The order is saved on the server, and devices are no longer sorted by type. Whatever the order,
   the grid never leaves a hole: a tile that has no room for the next one beside it stretches to fill its row.
-- **Rename devices and put them in a home:** long-press a tile (or use ⋮ on a full-screen device). Homes are listed
-  with their path (`Acme Co › Kyleton › House 1`).
+- **Rename devices and say where they are:** long-press a tile (or use ⋮ on a full-screen device). The **In** list has
+  every organization, folder and home with its path (`Acme Co › Kyleton › House 1`), and **No group** to take it out of
+  all of them. (Drag and drop is on the website; on the phone it is **In** and **Arrange**.)
 
 **Weather** (if the server has the Weather tab on)
 - Built like a weather app: swipe between stations under a live animated sky (sun, cloud, rain, snow, thunderstorms),
@@ -106,6 +108,7 @@ leaves out whatever an older one doesn't send.
 | How long a thermostat has been heating or cooling | EZStats 0.7.2+ on EZvac BETA 1.0 Pilot 8+ |
 | Thermostat run log | EZStats 0.7.3+ |
 | Organizations, folders, moving groups and arranging the order | EZStats 0.8.0+ |
+| Devices straight in an organization or folder (the **In** list) | EZStats 0.8.1+ |
 | Sunrise, day, sunset and night on the weather skies (and "Sunny") | EZStats 0.7.4+ (older servers keep a daytime sky) |
 | Controlling devices (otherwise the app is read-only) | EZvac BETA 1.0 Pilot 7+ |
 

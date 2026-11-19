@@ -183,7 +183,7 @@ private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>,
         add(
             DashRow.Note(
                 (state.readOnlyReason ?: "Changing devices is not available.") +
-                    " You can still rename devices and sort them into homes here.",
+                    " You can still rename devices and sort them into groups here.",
                 null, false, "readonly",
             ),
         )
@@ -231,8 +231,9 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
     // Worked out again only when what they depend on changes, not on every frame of an animation.
     val rows = remember(state, vm.banner, vm.collapsed, vm.arranging) { buildRows(state, vm.banner, vm.collapsed, vm.arranging) }
     val groupIds = remember(state.orgs, state.folders, state.homes, state.devices) {
-        val homeIds = state.homes.mapTo(HashSet()) { it.id }
-        state.allGroups().map { it.id } + (if (state.devices.any { it.home !in homeIds }) listOf(NO_HOME) else emptyList())
+        val ids = state.allGroups().map { it.id }
+        // A device can be in any group (EZStats 0.8.1), so the ones in no group are those whose "home" is none of them.
+        ids + (if (state.devices.any { it.home !in ids }) listOf(NO_HOME) else emptyList())
     }
     val allCollapsed = groupIds.isNotEmpty() && groupIds.all { it in vm.collapsed }
 
@@ -511,9 +512,10 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
     deleteGroup?.let { g ->
         ConfirmDialog(
             "Delete \"${g.name}\"?",
+            // Nothing is deleted: what was inside moves up to where the group was (a top-level group's devices go to none).
             when (g.kind) {
-                GroupKind.HOME -> "Its devices aren't deleted: they go back to \"No home\"."
-                else -> "Nothing inside is deleted: its folders and homes move up a level."
+                GroupKind.HOME -> "Its devices aren't deleted: they move up a level."
+                else -> "Nothing inside is deleted: its devices, folders and homes move up a level."
             },
             "Delete",
             onDismiss = { deleteGroup = null },
@@ -637,7 +639,7 @@ private fun GroupHeader(
     onMoveEarlier: () -> Unit,
     onMoveLater: () -> Unit,
 ) {
-    val title = group?.name ?: "No home"
+    val title = group?.name ?: "No group"
     val kind = group?.kind
     val rotation by animateFloatAsState(if (expanded) 0f else -90f, Motion.bouncy, label = "chevron")
     var menu by remember { mutableStateOf(false) }

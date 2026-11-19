@@ -121,20 +121,20 @@ sealed interface DashEntry {
 }
 
 /**
- * The dashboard as a flat list: organizations at the top, then the folders and homes in each (folders first), then the
- * devices in the order they were arranged, and finally the devices in no home. A group in [collapsed] hides everything
- * in it. With no groups at all it is just the devices.
+ * The dashboard as a flat list: organizations at the top, then the folders and homes in each (folders first), with the
+ * devices in the order they were arranged, and finally the devices in no group. A device can be in any group (EZStats
+ * 0.8.1), so a group lists its own devices first and its folders and homes after them: devices listed below a
+ * sub-group's heading would look as if they were inside it. A group in [collapsed] hides everything in it. With no
+ * groups at all it is just the devices.
  */
 fun flattenGroups(state: StateData, collapsed: Set<String>): List<DashEntry> {
     val groups = state.allGroups()
     if (groups.isEmpty()) return state.devices.map { DashEntry.Dev(it) }
     val index = GroupIndex(groups)
-    val byHome = state.devices.groupBy { it.home }
-    val homeIds = state.homes.mapTo(HashSet()) { it.id }
-    val loose = state.devices.filter { it.home !in homeIds }
+    val byGroup = state.devices.groupBy { it.home } // a device's "home" is the id of whichever group it is in
+    val loose = state.devices.filter { it.home !in index.byId }
 
-    fun devicesIn(g: Group): List<Device> =
-        if (g.kind == GroupKind.HOME) byHome[g.id].orEmpty() else index.children(g.id).flatMap { devicesIn(it) }
+    fun devicesIn(g: Group): List<Device> = byGroup[g.id].orEmpty() + index.children(g.id).flatMap { devicesIn(it) }
 
     val out = mutableListOf<DashEntry>()
     fun visitAll(list: List<Group>, depth: Int) {
@@ -144,8 +144,8 @@ fun flattenGroups(state: StateData, collapsed: Set<String>): List<DashEntry> {
             val open = g.id !in collapsed
             out += DashEntry.Header(g, depth, devicesIn(g), open, i > 0, i < same.lastIndex)
             if (open) {
-                if (g.kind == GroupKind.HOME) byHome[g.id].orEmpty().forEach { out += DashEntry.Dev(it) }
-                else visitAll(index.children(g.id), depth + 1)
+                byGroup[g.id].orEmpty().forEach { out += DashEntry.Dev(it) }
+                visitAll(index.children(g.id), depth + 1)
             }
         }
     }
@@ -158,17 +158,16 @@ fun flattenGroups(state: StateData, collapsed: Set<String>): List<DashEntry> {
     return out
 }
 
-/** Every home with the path to it, in the order the tree shows them (for choosing where a device goes). */
-fun homeChoices(state: StateData): List<Pair<Group, String>> {
+/** Every organization, folder and home with the path to it, in the order the tree shows them (for choosing where a device goes). */
+fun placeChoices(state: StateData): List<Pair<Group, String>> {
     val index = GroupIndex(state.allGroups())
     val out = mutableListOf<Pair<Group, String>>()
     fun walk(parent: String) {
         index.children(parent).forEach { g ->
-            if (g.kind == GroupKind.HOME) out += g to index.path(g) else walk(g.id)
+            out += g to index.path(g)
+            walk(g.id)
         }
     }
     walk("")
-    // A home that can't be reached from the top (it shouldn't happen) is still offered, by its own name.
-    state.homes.filter { h -> out.none { it.first.id == h.id } }.forEach { out += Group(it.id, it.name, it.parent, GroupKind.HOME) to it.name }
     return out
 }

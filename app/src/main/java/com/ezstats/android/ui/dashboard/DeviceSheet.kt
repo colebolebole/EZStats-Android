@@ -20,7 +20,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.HomeWork
 import androidx.compose.material.icons.rounded.MoreVert
@@ -49,8 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ezstats.android.EzViewModel
 import com.ezstats.android.data.Device
+import com.ezstats.android.data.Group
+import com.ezstats.android.data.GroupKind
 import com.ezstats.android.data.Home
-import com.ezstats.android.data.homeChoices
+import com.ezstats.android.data.placeChoices
 import com.ezstats.android.ui.common.IconBadge
 import com.ezstats.android.ui.common.TextInputDialog
 import com.ezstats.android.ui.common.deviceIcon
@@ -61,8 +65,8 @@ import com.ezstats.android.ui.theme.toneColors
 import kotlinx.coroutines.launch
 
 /**
- * What you can do to a device besides controlling it: rename it, and move it to another home. Opened by a long
- * press on its tile, or the ⋮ of its full-screen view.
+ * What you can do to a device besides controlling it: rename it, and move it into an organization, folder or home.
+ * Opened by a long press on its tile, or the ⋮ of its full-screen view.
  */
 @Composable
 fun DeviceSheet(vm: EzViewModel, d: Device, homes: List<Home>, onDismiss: () -> Unit) {
@@ -70,10 +74,11 @@ fun DeviceSheet(vm: EzViewModel, d: Device, homes: List<Home>, onDismiss: () -> 
     val scope = rememberCoroutineScope()
     var rename by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf<String?>(null) }
-    // Every home, named by its path ("Acme Co › Kyleton › House 1") so two homes with one name can be told apart.
+    // Every organization, folder and home (a device can be in any of them), named by its path
+    // ("Acme Co › Kyleton › House 1") so two groups with one name can be told apart.
     val state = vm.data
     val options = remember(state?.orgs, state?.folders, state?.homes, homes) {
-        state?.let { s -> homeChoices(s).map { (g, path) -> Home(g.id, path, g.parent) } } ?: homes
+        state?.let { placeChoices(it) } ?: homes.map { Group(it.id, it.name, it.parent, GroupKind.HOME) to it.name }
     }
 
     fun close() = scope.launch { sheet.hide() }.invokeOnCompletion { if (!sheet.isVisible) onDismiss() }
@@ -100,18 +105,29 @@ fun DeviceSheet(vm: EzViewModel, d: Device, homes: List<Home>, onDismiss: () -> 
             )
             if (options.isNotEmpty()) {
                 Text(
-                    "Home",
+                    "In",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
                 )
-                (listOf(Home("", "No home")) + options).forEach { h ->
-                    val selected = h.id == d.home || (h.id.isEmpty() && options.none { it.id == d.home })
+                (listOf<Pair<Group?, String>>(null to "No group") + options).forEach { (group, label) ->
+                    val id = group?.id.orEmpty()
+                    val selected = id == d.home || (id.isEmpty() && options.none { it.first.id == d.home })
                     ListItem(
-                        headlineContent = { Text(h.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                        leadingContent = { Icon(if (h.id.isEmpty()) Icons.Rounded.HomeWork else Icons.Rounded.Home, null) },
+                        headlineContent = { Text(label, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        leadingContent = {
+                            Icon(
+                                when (group?.kind) {
+                                    GroupKind.ORG -> Icons.Rounded.Business
+                                    GroupKind.FOLDER -> Icons.Rounded.Folder
+                                    GroupKind.HOME -> Icons.Rounded.Home
+                                    null -> Icons.Rounded.HomeWork
+                                },
+                                null,
+                            )
+                        },
                         trailingContent = {
-                            if (moving == h.id) LoadingIndicator(Modifier.size(32.dp)) else RadioButton(selected = selected, onClick = null)
+                            if (moving == id) LoadingIndicator(Modifier.size(32.dp)) else RadioButton(selected = selected, onClick = null)
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         modifier = Modifier.padding(horizontal = 8.dp).clip(MaterialTheme.shapes.large).selectable(
@@ -119,9 +135,9 @@ fun DeviceSheet(vm: EzViewModel, d: Device, homes: List<Home>, onDismiss: () -> 
                             role = Role.RadioButton,
                             onClick = {
                                 if (!selected && moving == null) {
-                                    moving = h.id
+                                    moving = id
                                     scope.launch {
-                                        val error = vm.moveToHome(d.key, h.id)
+                                        val error = vm.moveToHome(d.key, id)
                                         moving = null
                                         if (error != null) vm.messages.tryEmit(error) else close()
                                     }
