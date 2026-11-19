@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0F766E</color>
+    <!-- The bottom of the icon's gradient: it shows behind the launcher icon and the start-up screen. -->
+    <color name="ic_launcher_background">#0783FF</color>
+    <!-- The previous (teal) icon; kept with ic_launcher_classic_foreground. -->
+    <color name="ic_launcher_classic_background">#0F766E</color>
     <color name="window_background">#F6FAF8</color>
 </resources>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="128" height="128" alt="EZStats logo: three rising bars on teal">
+  <img src="docs/logo.png" width="128" height="128" alt="EZStats logo: a big white E and Z with the word stats, on blue">
 </p>
 
 <h1 align="center">EZStats for Android</h1>
