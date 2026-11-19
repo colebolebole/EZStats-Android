@@ -84,6 +84,7 @@ class EzApiTest {
     private val seen = java.util.Collections.synchronizedList(mutableListOf<String>()) // "METHOD path body"
     private var savedCookie: String? = null
     @Volatile private var olderServer = false
+    @Volatile private var noPlaceRoute = false // EZStats 0.8.0 and 0.8.1 have organizations but not /api/groups/place
 
     @Before
     fun start() {
@@ -120,6 +121,7 @@ class EzApiTest {
             // The routes that came with organizations and folders (EZStats 0.8): an older server doesn't know them.
             r.method == "POST" && r.path in GROUP_ROUTES -> when {
                 olderServer && !r.path.startsWith("/api/homes") -> Res(404, """{"error":"Not found"}""")
+                noPlaceRoute && r.path == "/api/groups/place" -> Res(404, """{"error":"Not found"}""")
                 !signedIn(r) -> notSignedIn
                 !custom -> noHeader
                 JSONObject(r.body).optString("id") == "gone" -> Res(404, """{"error":"No such folder."}""")
@@ -379,6 +381,40 @@ class EzApiTest {
     }
 
     @Test
+    fun placingAGroupIsOneCallOnANewServerAndTwoOnAnOlderOne() = runBlocking {
+        sessions += "abc123"
+        val a = api("abc123")
+        a.placeGroup("f1", "org1", "f2", "")
+        assertEquals(1, seen.count { it.contains("/api/groups/") })
+        seen.last().let { line ->
+            assertTrue(line.startsWith("POST /api/groups/place "))
+            val body = JSONObject(line.substringAfter("/api/groups/place "))
+            assertEquals("f1", body.getString("id")); assertEquals("org1", body.getString("parent")); assertEquals("f2", body.getString("before"))
+        }
+        // 0.8.0 and 0.8.1 have no place route: a move into another place, then the order.
+        noPlaceRoute = true
+        seen.clear()
+        a.placeGroup("f1", "org1", "f2", "")
+        assertEquals(
+            listOf("/api/groups/place", "/api/groups/move", "/api/groups/order"),
+            seen.map { it.split(" ")[1] },
+        )
+        // Staying where it is: only the order.
+        seen.clear()
+        a.placeGroup("f1", "org1", "", "org1")
+        assertEquals(listOf("/api/groups/place", "/api/groups/order"), seen.map { it.split(" ")[1] })
+        // The server's own "No such folder." is kept, not mistaken for a missing route.
+        seen.clear()
+        noPlaceRoute = false
+        try {
+            a.placeGroup("gone", "", "", ""); fail("expected 404")
+        } catch (e: ApiException) {
+            assertEquals("No such folder.", e.message)
+        }
+        assertEquals(1, seen.size)
+    }
+
+    @Test
     fun anOlderServerSaysItNeedsEightOhForFolders() = runBlocking {
         sessions += "abc123"
         olderServer = true
@@ -388,6 +424,7 @@ class EzApiTest {
             { a.createGroup(GroupKind.ORG, "Acme Co") },
             { a.moveGroup("f1", "") },
             { a.orderGroup("f1", "") },
+            { a.placeGroup("f1", "org1", "f2", "") },
             { a.orderDevice("w:1:2:3", "") },
             { a.renameGroup(GroupKind.FOLDER, "f1", "x") },
         )) {
@@ -539,7 +576,7 @@ class EzApiTest {
     companion object {
         private val GROUP_ROUTES = listOf(
             "/api/orgs", "/api/folders", "/api/homes", "/api/orgs/rename", "/api/folders/rename", "/api/homes/rename",
-            "/api/orgs/delete", "/api/folders/delete", "/api/homes/delete", "/api/groups/move", "/api/groups/order", "/api/device/order",
+            "/api/orgs/delete", "/api/folders/delete", "/api/homes/delete", "/api/groups/move", "/api/groups/order", "/api/groups/place", "/api/device/order",
         )
 
         private const val STATE = """

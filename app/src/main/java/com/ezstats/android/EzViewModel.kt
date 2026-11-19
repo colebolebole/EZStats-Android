@@ -590,6 +590,13 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun moveGroup(group: Group, parent: String) = mutate { it.moveGroup(group.id, parent) }
 
+    /** Moves a folder or home into [parent] and puts it just before [before] there ("" is the end). */
+    suspend fun placeGroup(group: Group, parent: String, before: String): String? {
+        val index = data?.let { GroupIndex(it.allGroups()) }
+        val current = index?.parentOf(group) ?: ""
+        return mutate { it.placeGroup(group.id, parent, before, current) }
+    }
+
     /** Moves a group one place earlier (-1) or later (+1) among the groups beside it, and saves the order. */
     suspend fun nudgeGroup(group: Group, delta: Int): String? {
         val state = data ?: return null

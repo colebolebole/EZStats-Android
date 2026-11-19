@@ -241,6 +241,21 @@ class EzApi(
         checked(groupRequest(request("POST", "/api/groups/move", JSONObject().put("id", id).put("parent", parent)), true))
     }
 
+    /**
+     * Moves a folder or home into [parent] ("" is the top) and puts it just before [before] there ("" is the end), in one
+     * call (EZStats 0.8.2). A server that has organizations but not that route (0.8.0, 0.8.1) gets the same result as two
+     * calls, a move (when [parent] isn't [currentParent]) and then the order.
+     */
+    suspend fun placeGroup(id: String, parent: String, before: String, currentParent: String) {
+        val r = request("POST", "/api/groups/place", JSONObject().put("id", id).put("parent", parent).put("before", before))
+        if (r.code == 404 && failureMessage(r)?.startsWith("No such") != true) {
+            if (parent != currentParent) moveGroup(id, parent)
+            orderGroup(id, before)
+        } else {
+            checked(r)
+        }
+    }
+
     /** Puts a group just before [before] among the groups beside it; "" is the end. */
     suspend fun orderGroup(id: String, before: String) {
         checked(groupRequest(request("POST", "/api/groups/order", JSONObject().put("id", id).put("before", before)), true))

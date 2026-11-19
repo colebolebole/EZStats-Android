@@ -170,6 +170,21 @@ class GroupsTest {
     }
 
     @Test
+    fun aMovedGroupCanGoBeforeTheOthersOfItsKindThatAreAlreadyThere() {
+        val index = GroupIndex(sample.allGroups())
+        val kyleton = sample.folders.first { it.id == "fold1" }
+        // Into Acme Co: before Depot (Kyleton is already there, so it is left out); folders only, not homes.
+        assertEquals(listOf("fold2"), positionsIn(index, kyleton, "org1").map { it.id })
+        // To the top level: before Misc, the only other folder there.
+        assertEquals(listOf("fold3"), positionsIn(index, kyleton, "").map { it.id })
+        // A home among the homes at the top.
+        val house = sample.homes.first { it.id == "home1" }.let { Group(it.id, it.name, it.parent, GroupKind.HOME) }
+        assertEquals(listOf("home3"), positionsIn(index, house, "").map { it.id })
+        // Nothing of its kind there: only "at the end".
+        assertTrue(positionsIn(index, house, "fold3").isEmpty())
+    }
+
+    @Test
     fun everyGroupIsOfferedWithItsPathForPlacingADevice() {
         // A device can be in an organization or a folder as well as a home (EZStats 0.8.1), in the order the tree shows.
         assertEquals(

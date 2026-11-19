@@ -96,7 +96,14 @@ fun siblingsOf(index: GroupIndex, g: Group): List<Group> =
     index.children(index.parentOf(g)).filter { it.kind == g.kind }
 
 /**
- * The `before` to send to move item [index] of [siblings] one place ([delta] -1 earlier, +1 later): the id of the item
+ * The groups [group] can be put in front of when it is put in [parent]: the others of its kind that are already there,
+ * in order (the group itself is left out). Putting it behind all of them is "at the end".
+ */
+fun positionsIn(index: GroupIndex, group: Group, parent: String): List<Group> =
+    index.children(parent).filter { it.kind == group.kind && it.id != group.id }
+
+/**
+ * The `before` to send to move item [index] to move item [index] of [siblings] one place ([delta] -1 earlier, +1 later): the id of the item
  * it should now sit just before, or "" for the end. Null when it is already as far as it goes that way.
  */
 fun orderBefore(siblings: List<String>, index: Int, delta: Int): String? = when {

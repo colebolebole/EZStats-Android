@@ -43,6 +43,8 @@ import com.ezstats.android.data.GroupIndex
 import com.ezstats.android.data.GroupKind
 import com.ezstats.android.data.StateData
 import com.ezstats.android.data.allGroups
+import com.ezstats.android.data.positionsIn
+import com.ezstats.android.data.siblingsOf
 import com.ezstats.android.data.validParents
 import com.ezstats.android.ui.common.cap
 import kotlinx.coroutines.launch
@@ -106,15 +108,18 @@ fun MoveGroupDialog(vm: EzViewModel, state: StateData, group: Group, onDismiss: 
     val parents = remember(index, group) { validParents(index, group) }
     val current = index.parentOf(group)
     var parent by remember { mutableStateOf(current) }
+    var before by remember { mutableStateOf("") } // "" is the end of the place it goes to
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val positions = remember(index, group, parent) { positionsIn(index, group, parent) }
+    val alreadyLast = parent == current && siblingsOf(index, group).lastOrNull()?.id == group.id
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("Move ${group.name}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (parents.size <= 1) {
                     Text(
                         "There is nowhere else it can go. Make an organization or a folder first.",
@@ -127,18 +132,21 @@ fun MoveGroupDialog(vm: EzViewModel, state: StateData, group: Group, onDismiss: 
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    ParentChoice("Inside", parents, index, parent) { parent = it; error = null }
+                    ParentChoice("Inside", parents, index, parent) { parent = it; before = ""; error = null }
+                }
+                if (positions.isNotEmpty()) {
+                    PositionChoice(positions, before) { before = it; error = null }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = !busy && parent != current,
+                enabled = !busy && (parent != current || before.isNotEmpty() || !alreadyLast),
                 onClick = {
                     busy = true
                     scope.launch {
-                        val result = vm.moveGroup(group, parent)
+                        val result = if (before.isEmpty() && parent != current) vm.moveGroup(group, parent) else vm.placeGroup(group, parent, before)
                         busy = false
                         if (result == null) onDismiss() else error = result
                     }
@@ -147,6 +155,33 @@ fun MoveGroupDialog(vm: EzViewModel, state: StateData, group: Group, onDismiss: 
         },
         dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** Where among the groups already there: "At the end", or in front of any one of them. */
+@Composable
+private fun PositionChoice(others: List<Group>, selected: String, onSelect: (String) -> Unit) {
+    Text("Position", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    Column(Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+        (listOf<Group?>(null) + others).forEach { other ->
+            val id = other?.id.orEmpty()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .selectable(selected = selected == id, role = Role.RadioButton, onClick = { onSelect(id) })
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = selected == id, onClick = null)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    other?.let { "Before ${it.name}" } ?: "At the end",
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
 }
 
 /** A short scrolling list of radio rows: the top level, then each organization and folder with its path. */
