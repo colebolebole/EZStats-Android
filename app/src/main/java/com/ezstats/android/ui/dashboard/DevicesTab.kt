@@ -74,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,7 +90,9 @@ import com.ezstats.android.ui.common.TextInputDialog
 import com.ezstats.android.ui.common.cap
 import com.ezstats.android.ui.common.entrance
 import com.ezstats.android.ui.common.greeting
+import com.ezstats.android.ui.common.deviceGridColumns
 import com.ezstats.android.ui.common.isShortScreen
+import com.ezstats.android.ui.common.rememberSidePadding
 import com.ezstats.android.ui.common.plural
 import com.ezstats.android.ui.common.skyIcon
 import com.ezstats.android.ui.theme.Motion
@@ -323,16 +326,21 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                 )
             },
         ) {
+            // On a tablet the grid has an even number of columns (a thermostat takes two, a compact tile one), so rows
+            // of wide tiles fill the width; on a very wide screen the content stops growing and centres.
+            val screenDp = LocalConfiguration.current.screenWidthDp
+            val side = rememberSidePadding(1400.dp, if (screenDp >= 600) 24.dp else 16.dp)
+            val tabletColumns = deviceGridColumns(screenDp - (side.value * 2).toInt())
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Adaptive(164.dp),
+                columns = tabletColumns?.let { GridCells.Fixed(it) } ?: GridCells.Adaptive(164.dp),
                 contentPadding = PaddingValues(
-                    start = 16.dp, end = 16.dp,
+                    start = side, end = side,
                     top = 4.dp,
                     bottom = padding.calculateBottomPadding() + 24.dp,
                 ),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (tabletColumns != null) 16.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(if (tabletColumns != null) 16.dp else 12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 itemsIndexed(

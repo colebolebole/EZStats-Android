@@ -63,6 +63,7 @@ import com.ezstats.android.ui.common.ConfirmDialog
 import com.ezstats.android.ui.common.IconBadge
 import com.ezstats.android.ui.common.PressCard
 import com.ezstats.android.ui.common.entrance
+import com.ezstats.android.ui.common.rememberSidePadding
 import com.ezstats.android.ui.theme.Motion
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -116,7 +117,7 @@ fun ServersScreen(vm: EzViewModel) {
     ) { padding ->
         if (vm.servers.isEmpty()) {
             Column(
-                Modifier.fillMaxSize().padding(padding).padding(32.dp),
+                Modifier.fillMaxSize().padding(padding).padding(horizontal = rememberSidePadding(560.dp, 32.dp), vertical = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -138,9 +139,10 @@ fun ServersScreen(vm: EzViewModel) {
                 )
             }
         } else {
+            val side = rememberSidePadding(680.dp)
             LazyColumn(
                 contentPadding = PaddingValues(
-                    start = 16.dp, end = 16.dp,
+                    start = side, end = side,
                     top = padding.calculateTopPadding() + 8.dp,
                     bottom = padding.calculateBottomPadding() + 96.dp,
                 ),

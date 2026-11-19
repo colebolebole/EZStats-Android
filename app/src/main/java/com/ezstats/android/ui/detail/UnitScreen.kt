@@ -61,6 +61,46 @@ fun UnitScreen(vm: EzViewModel, d: Device, state: StateData, snackbar: SnackbarH
         snackbar = snackbar,
         onClose = onClose,
         actions = { DeviceMenuButton(vm, d, state.homes) },
+        // On a wide screen the gauge and power stay on the left, the target, tank, fan and filter go to the right.
+        aside = {
+            if (d.isHumidityUnit) {
+                DetailCard {
+                    val target = d.setpoint
+                    if (target != null) {
+                        if (writable) {
+                            Stepper(
+                                "target",
+                                target,
+                                format = { "$it%" },
+                                step = { v, dir -> (v + dir * 5).coerceIn(0, 100) },
+                                onSend = { v -> vm.control(d.key, "setpoint", v) { it.copy(setpoint = v) } },
+                                big = true,
+                            )
+                        } else {
+                            Fact("Target", "$target%")
+                        }
+                    }
+                    if (d.type == "dehumidifier") d.tank?.let { Meter("Water tank", it, 0.8) }
+                }
+            }
+
+            if (d.isPurifier) {
+                DetailCard("Fan") {
+                    if (writable) {
+                        ConnectedChoice(listOf("low", "medium", "high", "auto"), d.fanMode) { name ->
+                            vm.control(d.key, "fan", name) { it.copy(fanMode = name) }
+                        }
+                    } else {
+                        Text(d.fanMode?.let { cap(it) } ?: "–", style = MaterialTheme.typography.titleMedium)
+                    }
+                    if (d.fanMode == "auto" && d.fanSpeed != null) {
+                        Text("Running at ${d.fanSpeed} right now", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    d.filter?.let { Meter("Filter left", it) }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        },
     ) {
         StatusPill(deviceStatus(d), deviceTone(d))
 
@@ -86,44 +126,6 @@ fun UnitScreen(vm: EzViewModel, d: Device, state: StateData, snackbar: SnackbarH
         }
 
         if (writable) PowerButton(d.powered, deviceName(d)) { on -> vm.control(d.key, "powered", on) { it.copy(powered = on) } }
-
-        if (d.isHumidityUnit) {
-            DetailCard {
-                val target = d.setpoint
-                if (target != null) {
-                    if (writable) {
-                        Stepper(
-                            "target",
-                            target,
-                            format = { "$it%" },
-                            step = { v, dir -> (v + dir * 5).coerceIn(0, 100) },
-                            onSend = { v -> vm.control(d.key, "setpoint", v) { it.copy(setpoint = v) } },
-                            big = true,
-                        )
-                    } else {
-                        Fact("Target", "$target%")
-                    }
-                }
-                if (d.type == "dehumidifier") d.tank?.let { Meter("Water tank", it, 0.8) }
-            }
-        }
-
-        if (d.isPurifier) {
-            DetailCard("Fan") {
-                if (writable) {
-                    ConnectedChoice(listOf("low", "medium", "high", "auto"), d.fanMode) { name ->
-                        vm.control(d.key, "fan", name) { it.copy(fanMode = name) }
-                    }
-                } else {
-                    Text(d.fanMode?.let { cap(it) } ?: "–", style = MaterialTheme.typography.titleMedium)
-                }
-                if (d.fanMode == "auto" && d.fanSpeed != null) {
-                    Text("Running at ${d.fanSpeed} right now", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                d.filter?.let { Meter("Filter left", it) }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
     }
 }
 

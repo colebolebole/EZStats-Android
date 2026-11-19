@@ -56,6 +56,10 @@ the same key, so a new version installs over the old one and keeps your servers,
   password with **Forgot password?** (see below).
 - **Settings:** theme (system, light, dark), wallpaper colors, °F/°C (or follow the server), refresh rate, animated
   weather, and haptics on/off with a strength.
+- **Made for tablets** (and foldables, and phones on their side): the Devices grid fills the width with bigger tiles, a
+  device opens as two panes (the dial or gauge on the left, the facts and log on the right), the weather page lays its
+  cards out in two columns under a larger headline, and the station list and Settings use the room instead of
+  stretching across it. The layout follows the window, so split screen adapts too.
 - Opens instantly on the last thing it saw, and stays quick: springy Material 3 Expressive motion throughout,
   shape-morphing buttons and elements that stretch a little under your finger.
 

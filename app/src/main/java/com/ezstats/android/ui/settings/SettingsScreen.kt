@@ -33,6 +33,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.platform.LocalView
 import com.ezstats.android.ui.common.CrispHaptics
+import com.ezstats.android.ui.common.rememberSidePadding
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
@@ -112,8 +113,10 @@ fun SettingsScreen(vm: EzViewModel) {
             )
         },
     ) { padding ->
+        // On a tablet the settings sit in a centred column instead of stretching across the screen.
+        val side = rememberSidePadding(680.dp)
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 4.dp, bottom = padding.calculateBottomPadding() + 32.dp),
+            contentPadding = PaddingValues(start = side, end = side, top = padding.calculateTopPadding() + 4.dp, bottom = padding.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {

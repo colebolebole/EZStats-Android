@@ -17,8 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -45,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +59,7 @@ import com.ezstats.android.ui.common.LocalUnits
 import com.ezstats.android.ui.common.PressCard
 import com.ezstats.android.ui.common.SectionHeader
 import com.ezstats.android.ui.common.skyIcon
+import com.ezstats.android.ui.common.stationListColumns
 import com.ezstats.android.ui.common.skyName
 import com.ezstats.android.ui.theme.numeric
 
@@ -119,8 +124,11 @@ fun StationPicker(
         }
     }
 
+    // On a tablet the list is a grid of two or three cards across, and on a very wide screen it stops growing.
+    val columns = stationListColumns(LocalConfiguration.current.screenWidthDp)
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 1200.dp).fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Locations", style = MaterialTheme.typography.headlineLarge)
@@ -172,13 +180,15 @@ fun StationPicker(
                     }
                 }
             }
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottom + 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 if (rows.isEmpty()) {
-                    item {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             "No stations match.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -186,7 +196,11 @@ fun StationPicker(
                         )
                     }
                 }
-                items(rows, key = { it.key }) { row ->
+                items(
+                    rows,
+                    key = { it.key },
+                    span = { row -> GridItemSpan(if (row is PickerRow.Header) maxLineSpan else 1) },
+                ) { row ->
                     Box(Modifier.animateItem()) {
                         when (row) {
                             is PickerRow.Header -> SectionHeader(row.title, row.count)
@@ -203,6 +217,7 @@ fun StationPicker(
                 }
             }
         }
+      }
     }
 }
 

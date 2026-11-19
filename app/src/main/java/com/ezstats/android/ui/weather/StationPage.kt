@@ -61,6 +61,8 @@ import com.ezstats.android.ui.common.LocalUnits
 import com.ezstats.android.ui.common.RollingText
 import com.ezstats.android.ui.common.UnitFmt
 import com.ezstats.android.ui.common.WIND
+import com.ezstats.android.ui.common.WidthClass
+import com.ezstats.android.ui.common.widthClass
 import com.ezstats.android.ui.common.cap
 import com.ezstats.android.ui.common.isShortScreen
 import com.ezstats.android.ui.common.plural
@@ -121,11 +123,14 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
     val units = LocalUnits.current
     val today = station.today
     val short = isShortScreen()
+    val width = widthClass()
+    val wide = width == WidthClass.EXPANDED
+    val roomy = width != WidthClass.COMPACT // a tablet: a bigger headline and more air around it
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(scroll)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = if (roomy) 24.dp else 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(top + if (short) 0.dp else 24.dp))
@@ -151,10 +156,14 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
             Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 4.dp)) {
                 RollingText(
                     station.outdoorF?.let { units.show(it).roundToInt().toString() } ?: "–",
-                    style = if (short) HeroNumber.copy(fontSize = 80.sp, lineHeight = 84.sp) else HeroNumber.copy(fontSize = 120.sp, lineHeight = 124.sp),
+                    style = when {
+                        short -> HeroNumber.copy(fontSize = 80.sp, lineHeight = 84.sp)
+                        roomy -> HeroNumber.copy(fontSize = 156.sp, lineHeight = 160.sp)
+                        else -> HeroNumber.copy(fontSize = 120.sp, lineHeight = 124.sp)
+                    },
                     color = OnSky,
                 )
-                if (station.outdoorF != null) Text("°", style = HeroNumber.copy(fontSize = if (short) 56.sp else 84.sp), color = OnSky)
+                if (station.outdoorF != null) Text("°", style = HeroNumber.copy(fontSize = if (short) 56.sp else if (roomy) 108.sp else 84.sp), color = OnSky)
             }
             Text(
                 if (station.working) today?.let { skyName(it.sky, station.phase) } ?: "Outside now" else idleWord(station),
@@ -182,7 +191,8 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
 
         Spacer(Modifier.height(if (short) 20.dp else 40.dp))
 
-        Column(Modifier.widthIn(max = 600.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Today and the week, then wind, air, rain, lightning and the place. On a tablet they sit side by side.
+        val summary: @Composable ColumnScope.() -> Unit = {
             if (!station.working) {
                 GlassCard(null, null) {
                     Text(idleWhy(station), style = MaterialTheme.typography.bodyLarge, color = OnSky)
@@ -196,6 +206,8 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
                     ForecastRows(station.forecast, station.outdoorF, OnSky)
                 }
             }
+        }
+        val details: @Composable ColumnScope.() -> Unit = {
             if (station.working) {
                 TileRow({ WindTile(station) }, { AirTile(station) })
                 TileRow({ RainTile(station) }, { LightningTile(station) })
@@ -203,6 +215,17 @@ fun StationPage(station: Station, nearestFor: List<String>, scroll: ScrollState,
             GlassCard("Location", Icons.Rounded.Place) {
                 Text(station.world ?: "Unknown world", style = MaterialTheme.typography.titleLarge, color = OnSky)
                 Text("x ${station.x}   y ${station.y}   z ${station.z}", style = MaterialTheme.typography.bodyLarge.numeric, color = OnSkyMuted)
+            }
+        }
+        if (wide) {
+            Row(Modifier.widthIn(max = 1040.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), content = summary)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), content = details)
+            }
+        } else {
+            Column(Modifier.widthIn(max = if (roomy) 680.dp else 600.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                summary()
+                details()
             }
         }
         Spacer(Modifier.height(bottom + 24.dp))

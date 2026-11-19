@@ -99,6 +99,48 @@ fun FridgeScreen(vm: EzViewModel, d: Device, state: StateData, snackbar: Snackba
         snackbar = snackbar,
         onClose = onClose,
         actions = { DeviceMenuButton(vm, d, state.homes) },
+        // On a wide screen the temperatures and power stay on the left, frost and defrost go to the right.
+        aside = {
+            val facts = buildList {
+                if (d.type == "mini_fridge" && cold?.chillerF != null) add("Chiller" to units.whole(cold.chillerF) + units.symbol)
+                d.humidity?.let { add("Humidity" to "${it.roundToInt()}%") }
+            }
+            if (cold?.frost != null || facts.isNotEmpty()) {
+                DetailCard {
+                    cold?.frost?.let { Meter("Frost", it, 0.7) }
+                    if (facts.isNotEmpty()) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) { facts.forEach { (k, v) -> Fact(k, v) } }
+                    }
+                }
+            }
+
+            if (writable && cold != null && (d.type == "deep_freezer" || d.type == "refrigerator")) {
+                DetailCard("Defrost") {
+                    Button(
+                        enabled = !cold.defrosting,
+                        onClick = { vm.control(d.key, "defrost", true) { it.copy(cold = cold.copy(defrosting = true)) } },
+                        shapes = ButtonDefaults.shapes(),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        Icon(Icons.Rounded.AcUnit, null)
+                        Text(if (cold.defrosting) "  Defrosting…" else "  Defrost now")
+                    }
+                    if (d.type == "refrigerator") {
+                        ListItem(
+                            headlineContent = { Text("Defrost automatically") },
+                            trailingContent = {
+                                Switch(
+                                    checked = cold.autoDefrost,
+                                    onCheckedChange = { on -> vm.control(d.key, "auto-defrost", on) { it.copy(cold = cold.copy(autoDefrost = on)) } },
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        },
     ) {
         StatusPill(deviceStatus(d), deviceTone(d))
 
@@ -142,45 +184,5 @@ fun FridgeScreen(vm: EzViewModel, d: Device, state: StateData, snackbar: Snackba
         }
 
         if (writable) PowerButton(d.powered, deviceName(d)) { on -> vm.control(d.key, "powered", on) { it.copy(powered = on) } }
-
-        val facts = buildList {
-            if (d.type == "mini_fridge" && cold?.chillerF != null) add("Chiller" to units.whole(cold.chillerF) + units.symbol)
-            d.humidity?.let { add("Humidity" to "${it.roundToInt()}%") }
-        }
-        if (cold?.frost != null || facts.isNotEmpty()) {
-            DetailCard {
-                cold?.frost?.let { Meter("Frost", it, 0.7) }
-                if (facts.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) { facts.forEach { (k, v) -> Fact(k, v) } }
-                }
-            }
-        }
-
-        if (writable && cold != null && (d.type == "deep_freezer" || d.type == "refrigerator")) {
-            DetailCard("Defrost") {
-                Button(
-                    enabled = !cold.defrosting,
-                    onClick = { vm.control(d.key, "defrost", true) { it.copy(cold = cold.copy(defrosting = true)) } },
-                    shapes = ButtonDefaults.shapes(),
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) {
-                    Icon(Icons.Rounded.AcUnit, null)
-                    Text(if (cold.defrosting) "  Defrosting…" else "  Defrost now")
-                }
-                if (d.type == "refrigerator") {
-                    ListItem(
-                        headlineContent = { Text("Defrost automatically") },
-                        trailingContent = {
-                            Switch(
-                                checked = cold.autoDefrost,
-                                onCheckedChange = { on -> vm.control(d.key, "auto-defrost", on) { it.copy(cold = cold.copy(autoDefrost = on)) } },
-                            )
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
     }
 }

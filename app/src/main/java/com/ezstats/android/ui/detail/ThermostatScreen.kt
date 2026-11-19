@@ -50,6 +50,8 @@ import com.ezstats.android.data.StateData
 import com.ezstats.android.data.Station
 import androidx.compose.ui.text.style.TextAlign
 import com.ezstats.android.ui.common.ATTENTION
+import com.ezstats.android.ui.common.WidthClass
+import com.ezstats.android.ui.common.widthClass
 import com.ezstats.android.ui.common.modeLine
 import com.ezstats.android.ui.common.runText
 import com.ezstats.android.ui.common.Fact
@@ -89,17 +91,20 @@ internal fun ThermostatScreen(vm: EzViewModel, d: Device, state: StateData, snac
         snackbar = snackbar,
         onClose = onClose,
         actions = { DeviceMenuButton(vm, d, state.homes) },
+        // On a wide screen the dial stays on the left and the facts, log and weather take the right.
+        aside = {
+            ThermostatFacts(vm, d)
+            RunLog(d)
+            val station = d.weather?.let { state.stations[it.station] }
+            OutsideCard(d, station, onOpen = station?.let { s -> { onClose(); vm.openStation(s.key) } })
+            Spacer(Modifier.height(24.dp))
+        },
     ) {
         StatusPill(deviceStatus(d), deviceTone(d))
         modeLine(d)?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         ThermostatControls(vm, d)
-        ThermostatFacts(vm, d)
-        RunLog(d)
-        val station = d.weather?.let { state.stations[it.station] }
-        OutsideCard(d, station, onOpen = station?.let { s -> { onClose(); vm.openStation(s.key) } })
-        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -144,7 +149,9 @@ private fun ThermostatControls(vm: EzViewModel, d: Device) {
 
     // The dial is as big as it can be, but on a short screen it leaves room for the buttons under it.
     val height = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
-    ThermostatDial(d, local, writable && d.enabled, change, maxSize = minOf(340.dp, height * 0.62f))
+    // A bigger dial where there is room for it (a tablet).
+    val room = if (widthClass() == WidthClass.COMPACT) 340.dp else 420.dp
+    ThermostatDial(d, local, writable && d.enabled, change, maxSize = minOf(room, height * 0.62f))
 
     if (writable) {
         val stepF = if (units.celsius) 0.5 * 9 / 5 else 1.0

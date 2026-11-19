@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -74,6 +75,8 @@ import androidx.compose.ui.util.lerp as lerpFloat
 import com.ezstats.android.EzViewModel
 import com.ezstats.android.data.StateData
 import com.ezstats.android.ui.common.Pull
+import com.ezstats.android.ui.common.WidthClass
+import com.ezstats.android.ui.common.widthClass
 import com.ezstats.android.ui.common.cap
 import com.ezstats.android.ui.common.springyPull
 import com.ezstats.android.ui.theme.Motion
@@ -204,7 +207,13 @@ fun DetailOverlay(
 
 // --- the frame the full-screen views share ----------------------------------------------------------------------
 
-/** A page washed with [tint] at the top, with a back arrow, a title, and a centred, scrolling column. */
+/**
+ * A page washed with [tint] at the top, with a back arrow, a title, and a centred, scrolling column.
+ *
+ * With an [aside], a wide window (a tablet, or a phone on its side) splits in two: [content] (the thing you operate,
+ * like the dial) on the left and the [aside] (the facts and the rest) on the right, each scrolling by itself. On a
+ * narrow window the aside just follows the content in the one column.
+ */
 @Composable
 fun DetailScaffold(
     tint: Color,
@@ -213,10 +222,12 @@ fun DetailScaffold(
     snackbar: SnackbarHostState,
     onClose: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
+    aside: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shown by animateColorAsState(tint, Motion.color, label = "detail tint")
     val scroll = rememberScrollState()
+    val width = widthClass()
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to shown, 0.55f to MaterialTheme.colorScheme.background),
@@ -247,20 +258,44 @@ fun DetailScaffold(
                 )
             },
         ) { padding ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(scroll)
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            if (aside != null && width == WidthClass.EXPANDED) {
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+                    Row(
+                        Modifier.widthIn(max = 1120.dp).fillMaxSize().padding(horizontal = 28.dp),
+                        horizontalArrangement = Arrangement.spacedBy(28.dp),
+                    ) {
+                        Column(
+                            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            content = content,
+                        )
+                        Column(
+                            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            content = aside,
+                        )
+                    }
+                }
+            } else {
                 Column(
-                    Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(scroll)
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    content = content,
-                )
+                ) {
+                    Column(
+                        Modifier.widthIn(max = if (width == WidthClass.COMPACT) 560.dp else 640.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        content()
+                        aside?.invoke(this)
+                    }
+                }
             }
         }
     }

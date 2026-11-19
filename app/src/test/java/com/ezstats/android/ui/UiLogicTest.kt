@@ -11,6 +11,11 @@ import com.ezstats.android.data.Run
 import com.ezstats.android.data.Station
 import com.ezstats.android.data.Wind
 import com.ezstats.android.ui.common.UnitFmt
+import com.ezstats.android.ui.common.WidthClass
+import com.ezstats.android.ui.common.deviceGridColumns
+import com.ezstats.android.ui.common.sidePaddingDp
+import com.ezstats.android.ui.common.stationListColumns
+import com.ezstats.android.ui.common.widthClassOf
 import com.ezstats.android.ui.common.clockText
 import com.ezstats.android.ui.common.modeLine
 import com.ezstats.android.ui.common.runText
@@ -96,6 +101,43 @@ class UiLogicTest {
         // A flat week still gets a bar to draw on.
         val flat = listOf(ForecastDay(0, 60.0, 60.0, "clear", 0.0, 0.0, "", null, null))
         assertEquals(59.0 to 61.0, forecastRange(flat))
+    }
+
+    @Test
+    fun windowWidthClassesFollowMaterial() {
+        assertEquals(WidthClass.COMPACT, widthClassOf(360))
+        assertEquals(WidthClass.COMPACT, widthClassOf(599))
+        assertEquals(WidthClass.MEDIUM, widthClassOf(600))
+        assertEquals(WidthClass.MEDIUM, widthClassOf(839))
+        assertEquals(WidthClass.EXPANDED, widthClassOf(840))
+        assertEquals(WidthClass.EXPANDED, widthClassOf(1280))
+        assertEquals(1, stationListColumns(412))
+        assertEquals(2, stationListColumns(800))
+        assertEquals(3, stationListColumns(1280))
+    }
+
+    @Test
+    fun contentCentresOnAWideScreenAndKeepsItsMarginOnAPhone() {
+        assertEquals(16, sidePaddingDp(360, 680)) // a phone: the usual margin
+        assertEquals(16, sidePaddingDp(680, 680))
+        assertEquals(300, sidePaddingDp(1280, 680)) // a tablet: the rest is shared between the two sides
+        assertEquals(24, sidePaddingDp(700, 680, minDp = 24))
+    }
+
+    @Test
+    fun theDevicesGridFillsEveryRowOnATablet() {
+        assertNull(deviceGridColumns(412)) // a phone keeps its adaptive grid
+        assertNull(deviceGridColumns(599))
+        // Always an even number, because a thermostat's tile takes two columns.
+        for (w in 600..2000 step 7) {
+            val c = deviceGridColumns(w)!!
+            assertTrue("$w dp gave $c columns", c % 2 == 0 && c in 4..8)
+            // Every wide tile gets at least 300 dp even on the narrowest.
+            if (w >= 700) assertTrue("$w dp: wide tile too narrow", (w - 16.0 * (c - 1)) / (c / 2) >= 300)
+        }
+        assertEquals(4, deviceGridColumns(800)) // a portrait tablet
+        assertEquals(6, deviceGridColumns(1280)) // a landscape tablet
+        assertEquals(8, deviceGridColumns(1400)) // the widest the content gets
     }
 
     @Test
