@@ -178,7 +178,18 @@ data class Device(
 }
 
 @Immutable
-data class Home(val id: String, val name: String)
+data class Home(val id: String, val name: String, val parent: String = "")
+
+/** The three kinds of group (EZStats 0.8+): an organization holds folders and homes, a folder holds more, a home holds devices. */
+enum class GroupKind(val route: String, val label: String) {
+    ORG("orgs", "organization"),
+    FOLDER("folders", "folder"),
+    HOME("homes", "home"),
+}
+
+/** An organization, folder or home, as one thing: [parent] is the id of what it is in, or "" at the top. */
+@Immutable
+data class Group(val id: String, val name: String, val parent: String, val kind: GroupKind)
 
 @Immutable
 data class World(
@@ -199,6 +210,9 @@ data class StateData(
     val writable: Boolean,
     val readOnlyReason: String?,
     val homes: List<Home>,
+    /** Organizations and folders (EZStats 0.8+); both empty on an older server. Each in the order the player arranged it. */
+    val orgs: List<Group> = emptyList(),
+    val folders: List<Group> = emptyList(),
     val devices: List<Device>,
     val worlds: List<World>,
     val stations: Map<String, Station>,
@@ -220,6 +234,8 @@ fun StateData.shareWith(old: StateData?): StateData {
     val sharedStations = stations.mapValues { (key, s) -> oldStations[key]?.takeIf { it == s } ?: s }
     return copy(
         homes = homes.reuse(old.homes),
+        orgs = orgs.reuse(old.orgs),
+        folders = folders.reuse(old.folders),
         devices = devices.map { d -> oldDevices[d.key]?.takeIf { it == d } ?: d }.reuse(old.devices),
         worlds = worlds.reuse(old.worlds),
         stations = if (sharedStations == oldStations) oldStations else sharedStations,

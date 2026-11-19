@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import com.ezstats.android.EzViewModel
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.Home
+import com.ezstats.android.data.homeChoices
 import com.ezstats.android.ui.common.IconBadge
 import com.ezstats.android.ui.common.TextInputDialog
 import com.ezstats.android.ui.common.deviceIcon
@@ -69,6 +70,11 @@ fun DeviceSheet(vm: EzViewModel, d: Device, homes: List<Home>, onDismiss: () -> 
     val scope = rememberCoroutineScope()
     var rename by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf<String?>(null) }
+    // Every home, named by its path ("Acme Co › Kyleton › House 1") so two homes with one name can be told apart.
+    val state = vm.data
+    val options = remember(state?.orgs, state?.folders, state?.homes, homes) {
+        state?.let { s -> homeChoices(s).map { (g, path) -> Home(g.id, path, g.parent) } } ?: homes
+    }
 
     fun close() = scope.launch { sheet.hide() }.invokeOnCompletion { if (!sheet.isVisible) onDismiss() }
 
@@ -92,17 +98,17 @@ fun DeviceSheet(vm: EzViewModel, d: Device, homes: List<Home>, onDismiss: () -> 
                 modifier = Modifier.padding(horizontal = 8.dp).clip(MaterialTheme.shapes.large)
                     .selectable(selected = false, role = Role.Button, onClick = { rename = true }),
             )
-            if (homes.isNotEmpty()) {
+            if (options.isNotEmpty()) {
                 Text(
                     "Home",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
                 )
-                (listOf(Home("", "No home")) + homes).forEach { h ->
-                    val selected = h.id == d.home || (h.id.isEmpty() && homes.none { it.id == d.home })
+                (listOf(Home("", "No home")) + options).forEach { h ->
+                    val selected = h.id == d.home || (h.id.isEmpty() && options.none { it.id == d.home })
                     ListItem(
-                        headlineContent = { Text(h.name) },
+                        headlineContent = { Text(h.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                         leadingContent = { Icon(if (h.id.isEmpty()) Icons.Rounded.HomeWork else Icons.Rounded.Home, null) },
                         trailingContent = {
                             if (moving == h.id) LoadingIndicator(Modifier.size(32.dp)) else RadioButton(selected = selected, onClick = null)

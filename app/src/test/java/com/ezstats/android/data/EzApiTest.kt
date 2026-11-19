@@ -117,6 +117,14 @@ class EzApiTest {
                 } else Res(401, """{"error":"Wrong username or password."}""")
             }
             olderServer && r.path in listOf("/api/quicklogin", "/api/reset-password") -> Res(404, """{"error":"Not found"}""")
+            // The routes that came with organizations and folders (EZStats 0.8): an older server doesn't know them.
+            r.method == "POST" && r.path in GROUP_ROUTES -> when {
+                olderServer && !r.path.startsWith("/api/homes") -> Res(404, """{"error":"Not found"}""")
+                !signedIn(r) -> notSignedIn
+                !custom -> noHeader
+                JSONObject(r.body).optString("id") == "gone" -> Res(404, """{"error":"No such folder."}""")
+                else -> Res(200, """{"ok":true}""")
+            }
             r.method == "POST" && r.path == "/api/quicklogin" -> {
                 if (!custom) return noHeader
                 val o = JSONObject(r.body)
@@ -320,6 +328,83 @@ class EzApiTest {
     }
 
     @Test
+    fun organizationsAndFoldersAreReadAndAbsentOnAnOlderServer() = runBlocking {
+        sessions += "abc123"
+        val s = api("abc123").state()
+        assertEquals(listOf(Group("org1", "Acme Co", "", GroupKind.ORG)), s.orgs)
+        assertEquals(listOf(Group("fold1", "Kyleton", "org1", GroupKind.FOLDER)), s.folders)
+        assertEquals("fold1", s.homes.single().parent)
+        // Before 0.8 there are no orgs or folders and a home has no parent: all at the top.
+        val old = parseState(
+            STATE.replace(Regex("\"orgs\":\\[[^\\]]*\\],\\s*\"folders\":\\[[^\\]]*\\],"), "")
+                .replace(",\"parent\":\"fold1\"", ""),
+        )
+        assertEquals(emptyList<Group>(), old.orgs)
+        assertEquals(emptyList<Group>(), old.folders)
+        assertEquals("", old.homes.single().parent)
+    }
+
+    @Test
+    fun groupCallsUseTheRightRoutesAndBodies() = runBlocking {
+        sessions += "abc123"
+        val a = api("abc123")
+        fun sent(): Pair<String, JSONObject> {
+            val line = seen.last()
+            val path = line.split(" ")[1]
+            return path to JSONObject(line.substringAfter("$path "))
+        }
+        a.createGroup(GroupKind.FOLDER, "Kyleton", "org1")
+        sent().let { (path, body) -> assertEquals("/api/folders", path); assertEquals("Kyleton", body.getString("name")); assertEquals("org1", body.getString("parent")) }
+        a.createGroup(GroupKind.ORG, "Acme Co")
+        sent().let { (path, body) -> assertEquals("/api/orgs", path); assertFalse(body.has("parent")) }
+        a.createGroup(GroupKind.HOME, "House 1", "") // at the top: no parent sent
+        sent().let { (path, body) -> assertEquals("/api/homes", path); assertFalse(body.has("parent")) }
+        a.renameGroup(GroupKind.FOLDER, "f1", "Depot")
+        sent().let { (path, body) -> assertEquals("/api/folders/rename", path); assertEquals("f1", body.getString("id")); assertEquals("Depot", body.getString("name")) }
+        a.deleteGroup(GroupKind.ORG, "o1")
+        sent().let { (path, body) -> assertEquals("/api/orgs/delete", path); assertEquals("o1", body.getString("id")) }
+        a.moveGroup("f1", "") // to the top is an empty parent, which is sent
+        sent().let { (path, body) -> assertEquals("/api/groups/move", path); assertEquals("", body.getString("parent")) }
+        a.orderGroup("f1", "f2")
+        sent().let { (path, body) -> assertEquals("/api/groups/order", path); assertEquals("f2", body.getString("before")) }
+        a.orderDevice("w:1:2:3", "") // "" is the end of its home
+        sent().let { (path, body) -> assertEquals("/api/device/order", path); assertEquals("w:1:2:3", body.getString("key")); assertEquals("", body.getString("before")) }
+        // The server's own sentence for a group that isn't there is kept.
+        try {
+            a.deleteGroup(GroupKind.FOLDER, "gone"); fail("expected 404")
+        } catch (e: ApiException) {
+            assertEquals(404, e.status)
+            assertEquals("No such folder.", e.message)
+        }
+    }
+
+    @Test
+    fun anOlderServerSaysItNeedsEightOhForFolders() = runBlocking {
+        sessions += "abc123"
+        olderServer = true
+        val a = api("abc123")
+        for (call in listOf<suspend () -> Unit>(
+            { a.createGroup(GroupKind.FOLDER, "Kyleton") },
+            { a.createGroup(GroupKind.ORG, "Acme Co") },
+            { a.moveGroup("f1", "") },
+            { a.orderGroup("f1", "") },
+            { a.orderDevice("w:1:2:3", "") },
+            { a.renameGroup(GroupKind.FOLDER, "f1", "x") },
+        )) {
+            try {
+                call(); fail("expected 404")
+            } catch (e: ApiException) {
+                assertEquals(404, e.status)
+                assertTrue(e.message!!.contains("0.8.0"))
+            }
+        }
+        // Homes at the top work on an old server, and say nothing about 0.8.
+        a.createGroup(GroupKind.HOME, "House 1")
+        a.renameGroup(GroupKind.HOME, "h1", "Cottage")
+        a.deleteGroup(GroupKind.HOME, "h1")
+    }
+
+    @Test
     fun codesAndPasswordsAreChecked() {
         assertEquals("12345678", codeDigits(" 1234 5678 "))
         assertEquals("12345678", codeDigits("1234-5678"))
@@ -452,10 +537,17 @@ class EzApiTest {
     }
 
     companion object {
+        private val GROUP_ROUTES = listOf(
+            "/api/orgs", "/api/folders", "/api/homes", "/api/orgs/rename", "/api/folders/rename", "/api/homes/rename",
+            "/api/orgs/delete", "/api/folders/delete", "/api/homes/delete", "/api/groups/move", "/api/groups/order", "/api/device/order",
+        )
+
         private const val STATE = """
         {"player":"Steve","weatherTab":true,"state":{
           "generatedAt":1800000000000,"units":"F","writable":true,"ezvacVersion":"x","apiVersion":"1.13",
-          "homes":[{"id":"home1","name":"Cottage"}],
+          "orgs":[{"id":"org1","name":"Acme Co","parent":""}],
+          "folders":[{"id":"fold1","name":"Kyleton","parent":"org1"}],
+          "homes":[{"id":"home1","name":"Cottage","parent":"fold1"}],
           "devices":[
             {"key":"w:1:2:3","world":"world","x":1,"y":2,"z":3,"kind":"thermostat","type":"room","label":"Living room",
              "roomF":70.1,"targetF":72.5,"mode":"heating","enabled":true,"pool":false,"mini":false,"humidity":41.0,

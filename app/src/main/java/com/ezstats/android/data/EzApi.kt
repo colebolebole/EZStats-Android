@@ -218,16 +218,52 @@ class EzApi(
         checked(request("POST", "/api/device/home", JSONObject().put("key", key).put("home", homeId)))
     }
 
-    suspend fun createHome(name: String) {
-        checked(request("POST", "/api/homes", JSONObject().put("name", name)))
+    // --- organizations, folders and homes (EZStats 0.8+; an older server only has homes, at the top) ------------
+
+    /** Makes an organization, folder or home. [parent] is the id of the organization or folder it goes in, "" for the top. */
+    suspend fun createGroup(kind: GroupKind, name: String, parent: String = "") {
+        val body = JSONObject().put("name", name)
+        if (kind != GroupKind.ORG && parent.isNotEmpty()) body.put("parent", parent)
+        checked(groupRequest(request("POST", "/api/${kind.route}", body), kind != GroupKind.HOME || parent.isNotEmpty()))
     }
 
-    suspend fun renameHome(id: String, name: String) {
-        checked(request("POST", "/api/homes/rename", JSONObject().put("id", id).put("name", name)))
+    suspend fun renameGroup(kind: GroupKind, id: String, name: String) {
+        checked(groupRequest(request("POST", "/api/${kind.route}/rename", JSONObject().put("id", id).put("name", name)), kind != GroupKind.HOME))
     }
 
-    suspend fun deleteHome(id: String) {
-        checked(request("POST", "/api/homes/delete", JSONObject().put("id", id)))
+    /** Deletes only that group: what was in it moves up a level. */
+    suspend fun deleteGroup(kind: GroupKind, id: String) {
+        checked(groupRequest(request("POST", "/api/${kind.route}/delete", JSONObject().put("id", id)), kind != GroupKind.HOME))
+    }
+
+    /** Moves a folder or home, with everything in it, into [parent] ("" is the top). */
+    suspend fun moveGroup(id: String, parent: String) {
+        checked(groupRequest(request("POST", "/api/groups/move", JSONObject().put("id", id).put("parent", parent)), true))
+    }
+
+    /** Puts a group just before [before] among the groups beside it; "" is the end. */
+    suspend fun orderGroup(id: String, before: String) {
+        checked(groupRequest(request("POST", "/api/groups/order", JSONObject().put("id", id).put("before", before)), true))
+    }
+
+    /** Puts a device just before [before] among the devices of its home; "" is the end of the home. */
+    suspend fun orderDevice(key: String, before: String) {
+        checked(groupRequest(request("POST", "/api/device/order", JSONObject().put("key", key).put("before", before)), true))
+    }
+
+    /**
+     * A server older than 0.8 answers 404 to the routes that came with folders; say what it needs instead of "Not found".
+     * A 0.8 server's own 404s say "No such home." (or folder, organization, group), and those are kept.
+     */
+    private fun groupRequest(r: Response, needsNewServer: Boolean): Response =
+        if (r.code == 404 && needsNewServer && failureMessage(r)?.startsWith("No such") != true) {
+            Response(404, """{"error":"This server doesn't have organizations and folders. It needs EZStats 0.8.0 or newer."}""", null)
+        } else r
+
+    private fun failureMessage(r: Response): String? = try {
+        JSONObject(r.body).optString("error").ifBlank { null }
+    } catch (e: Exception) {
+        null
     }
 
     private companion object {

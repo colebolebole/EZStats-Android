@@ -27,19 +27,32 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Business
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.HomeWork
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.UnfoldLess
 import androidx.compose.material.icons.rounded.UnfoldMore
@@ -80,14 +93,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ezstats.android.EzViewModel
+import com.ezstats.android.data.DashEntry
 import com.ezstats.android.data.Device
-import com.ezstats.android.data.Home
+import com.ezstats.android.data.Group
+import com.ezstats.android.data.GroupIndex
+import com.ezstats.android.data.GroupKind
+import com.ezstats.android.data.NO_HOME
 import com.ezstats.android.data.StateData
+import com.ezstats.android.data.allGroups
+import com.ezstats.android.data.flattenGroups
 import com.ezstats.android.ui.common.ConfirmDialog
 import com.ezstats.android.ui.common.LocalUnits
 import com.ezstats.android.ui.common.StatusPill
 import com.ezstats.android.ui.common.TextInputDialog
 import com.ezstats.android.ui.common.cap
+import com.ezstats.android.ui.common.deviceName
 import com.ezstats.android.ui.common.entrance
 import com.ezstats.android.ui.common.greeting
 import com.ezstats.android.ui.common.deviceGridColumns
@@ -101,8 +121,6 @@ import com.ezstats.android.ui.theme.numeric
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
-private const val NO_HOME = "none"
-
 /** One line of the dashboard grid. Keeping them in a flat list is what lets a tile be found and scrolled to. */
 private sealed interface DashRow {
     val key: String
@@ -113,29 +131,24 @@ private sealed interface DashRow {
     }
     data object Worlds : DashRow { override val key = "worlds" }
     data object Empty : DashRow { override val key = "empty" }
-    data class Header(val home: Home?, val count: Int, val expanded: Boolean, val summary: String?) : DashRow {
-        override val key get() = "home:${home?.id ?: NO_HOME}"
+    /** An organization, folder or home (null: the devices in no home), indented by how deep it is. */
+    data class Header(
+        val group: Group?,
+        val depth: Int,
+        val count: Int,
+        val expanded: Boolean,
+        val summary: String?,
+        val canMoveEarlier: Boolean,
+        val canMoveLater: Boolean,
+    ) : DashRow {
+        override val key get() = "group:${group?.id ?: NO_HOME}"
     }
     data class Dev(val d: Device) : DashRow {
         override val key get() = "dev:${d.key}"
     }
 }
 
-/** How a device sorts within its home: the things you control first. */
-private val ORDER = mapOf("thermostat" to 0, "unit" to 1, "equipment" to 2, "instrument" to 3, "vent" to 4)
-
-/** The devices, one group per home (or a single group when there are no homes). */
-private fun sections(state: StateData): List<Pair<Home?, List<Device>>> =
-    if (state.homes.isEmpty()) {
-        listOf(null to state.devices)
-    } else {
-        val ids = state.homes.mapTo(HashSet()) { it.id }
-        val byHome = state.devices.groupBy { it.home }
-        val loose = state.devices.filter { it.home !in ids }
-        state.homes.map { h -> h to byHome[h.id].orEmpty() } + (if (loose.isEmpty()) emptyList() else listOf(null to loose))
-    }
-
-/** "2 thermostats · 1 heating": what a folded-shut home still has to say for itself. */
+/** "2 thermostats · 1 heating": what a folded-shut group still has to say for itself. */
 private fun homeSummary(list: List<Device>): String? {
     val thermostats = list.filter { it.isThermostat }
     if (thermostats.isEmpty()) return if (list.isEmpty()) null else plural(list.size, "device")
@@ -145,7 +158,7 @@ private fun homeSummary(list: List<Device>): String? {
     return parts.joinToString(" · ")
 }
 
-private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>, groups: List<Pair<Home?, List<Device>>>) = buildList {
+private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>) = buildList {
     banner?.let { add(DashRow.Note(it, "Trying again…", true, "banner")) }
     if (!state.writable) {
         add(
@@ -168,11 +181,17 @@ private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>,
     }
     if (state.worlds.isNotEmpty()) add(DashRow.Worlds)
     if (state.devices.isEmpty()) add(DashRow.Empty)
-    groups.forEach { (home, list) ->
-        val expanded = state.homes.isEmpty() || (home?.id ?: NO_HOME) !in collapsed
-        if (state.homes.isNotEmpty()) add(DashRow.Header(home, list.size, expanded, homeSummary(list)))
-        // Wide tiles first, then the compact ones, so the compact tiles pack together without gaps.
-        if (expanded) list.sortedWith(compareBy({ !wide(it) }, { ORDER[it.kind] ?: 9 })).forEach { add(DashRow.Dev(it)) }
+    // Organizations, folders and homes with their devices, in the order the player arranged them (the server keeps it).
+    flattenGroups(state, collapsed).forEach { entry ->
+        when (entry) {
+            is DashEntry.Header -> add(
+                DashRow.Header(
+                    entry.group, entry.depth, entry.devices.size, entry.expanded, homeSummary(entry.devices),
+                    entry.canMoveEarlier, entry.canMoveLater,
+                ),
+            )
+            is DashEntry.Dev -> add(DashRow.Dev(entry.device))
+        }
     }
 }
 
@@ -183,16 +202,20 @@ private fun wide(d: Device) = d.isThermostat || d.type == "refrigerator"
 fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridState: LazyGridState) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var newHome by remember { mutableStateOf(false) }
-    var renameHome by remember { mutableStateOf<Home?>(null) }
-    var deleteHome by remember { mutableStateOf<Home?>(null) }
+    var newGroup by remember { mutableStateOf<GroupKind?>(null) }
+    var renameGroup by remember { mutableStateOf<Group?>(null) }
+    var moveGroupFor by remember { mutableStateOf<Group?>(null) }
+    var deleteGroup by remember { mutableStateOf<Group?>(null) }
     var sheetFor by remember { mutableStateOf<Device?>(null) }
     var menu by remember { mutableStateOf(false) }
 
     // Worked out again only when what they depend on changes, not on every frame of an animation.
-    val groups = remember(state.devices, state.homes) { sections(state) }
-    val rows = remember(state, vm.banner, vm.collapsed, groups) { buildRows(state, vm.banner, vm.collapsed, groups) }
-    val allCollapsed = state.homes.isNotEmpty() && groups.all { (it.first?.id ?: NO_HOME) in vm.collapsed }
+    val rows = remember(state, vm.banner, vm.collapsed) { buildRows(state, vm.banner, vm.collapsed) }
+    val groupIds = remember(state.orgs, state.folders, state.homes, state.devices) {
+        val homeIds = state.homes.mapTo(HashSet()) { it.id }
+        state.allGroups().map { it.id } + (if (state.devices.any { it.home !in homeIds }) listOf(NO_HOME) else emptyList())
+    }
+    val allCollapsed = groupIds.isNotEmpty() && groupIds.all { it in vm.collapsed }
 
     // The full-screen view asks for its tile to be brought into view before it shrinks back into it:
     // the device may have been moved to another home, which may be folded shut or far down the list.
@@ -202,10 +225,14 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
         vm.revealTile = reveal@{ key ->
             val s = latestState
             val dev = s.devices.firstOrNull { it.key == key } ?: return@reveal
-            if (s.homes.isNotEmpty()) {
-                val homeId = s.homes.firstOrNull { it.id == dev.home }?.id ?: NO_HOME
-                if (homeId in vm.collapsed) {
-                    vm.toggleHome(homeId)
+            val groups = s.allGroups()
+            if (groups.isNotEmpty()) {
+                // Unfold the home it is in and every folder and organization above that.
+                val index = GroupIndex(groups)
+                val chain = if (dev.home in index.byId) index.selfAndAncestors(dev.home) else listOf(NO_HOME)
+                val shut = chain.filter { it in vm.collapsed }
+                if (shut.isNotEmpty()) {
+                    shut.forEach { vm.toggleHome(it) }
                     withFrameNanos { }
                     withFrameNanos { }
                 }
@@ -251,22 +278,38 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = MaterialTheme.shapes.medium) {
                         DropdownMenuItem(
+                            text = { Text("New organization") },
+                            leadingIcon = { Icon(Icons.Rounded.Business, null) },
+                            onClick = { menu = false; newGroup = GroupKind.ORG },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("New folder") },
+                            leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) },
+                            onClick = { menu = false; newGroup = GroupKind.FOLDER },
+                        )
+                        DropdownMenuItem(
                             text = { Text("New home") },
                             leadingIcon = { Icon(Icons.Rounded.Add, null) },
-                            onClick = { menu = false; newHome = true },
+                            onClick = { menu = false; newGroup = GroupKind.HOME },
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(if (vm.arranging) "Done arranging" else "Arrange") },
+                            leadingIcon = { Icon(if (vm.arranging) Icons.Rounded.Check else Icons.Rounded.SwapHoriz, null) },
+                            onClick = { menu = false; vm.arranging = !vm.arranging },
                         )
                         DropdownMenuItem(
                             text = { Text("Refresh") },
                             leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
                             onClick = { menu = false; vm.refreshNow() },
                         )
-                        if (state.homes.isNotEmpty()) {
+                        if (groupIds.isNotEmpty()) {
                             DropdownMenuItem(
-                                text = { Text(if (allCollapsed) "Expand all homes" else "Collapse all homes") },
+                                text = { Text(if (allCollapsed) "Expand everything" else "Collapse everything") },
                                 leadingIcon = { Icon(if (allCollapsed) Icons.Rounded.UnfoldMore else Icons.Rounded.UnfoldLess, null) },
                                 onClick = {
                                     menu = false
-                                    vm.setAllCollapsed(groups.map { it.first?.id ?: NO_HOME }, !allCollapsed)
+                                    vm.setAllCollapsed(groupIds, !allCollapsed)
                                 },
                             )
                         }
@@ -371,24 +414,46 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                             DashRow.Worlds -> WorldsStrip(state)
                             DashRow.Empty -> EmptyDevices()
                             is DashRow.Header -> {
-                                val home = row.home
-                                HomeHeader(
-                                    title = home?.name ?: "No home",
+                                val group = row.group
+                                GroupHeader(
+                                    group = group,
+                                    depth = row.depth,
                                     count = row.count,
                                     expanded = row.expanded,
                                     summary = row.summary,
-                                    onToggle = { vm.toggleHome(home?.id ?: NO_HOME) },
-                                    onRename = home?.let { { renameHome = it } },
-                                    onDelete = home?.let { { deleteHome = it } },
+                                    arranging = vm.arranging,
+                                    canMoveEarlier = row.canMoveEarlier,
+                                    canMoveLater = row.canMoveLater,
+                                    onToggle = { vm.toggleHome(group?.id ?: NO_HOME) },
+                                    onRename = group?.let { { renameGroup = it } },
+                                    onMove = group?.takeIf { it.kind != GroupKind.ORG }?.let { { moveGroupFor = it } },
+                                    onDelete = group?.let { { deleteGroup = it } },
+                                    onMoveEarlier = { group?.let { g -> scope.launch { vm.nudgeGroup(g, -1)?.let { vm.messages.tryEmit(it) } } } },
+                                    onMoveLater = { group?.let { g -> scope.launch { vm.nudgeGroup(g, 1)?.let { vm.messages.tryEmit(it) } } } },
                                 )
                             }
-                            is DashRow.Dev -> DeviceTile(
-                                vm = vm,
-                                d = row.d,
-                                station = row.d.weather?.let { state.stations[it.station] },
-                                wide = wide(row.d),
-                                onLongPress = { sheetFor = row.d },
-                            )
+                            is DashRow.Dev -> Box {
+                                DeviceTile(
+                                    vm = vm,
+                                    d = row.d,
+                                    station = row.d.weather?.let { state.stations[it.station] },
+                                    wide = wide(row.d),
+                                    onLongPress = { sheetFor = row.d },
+                                )
+                                if (vm.arranging) {
+                                    // Its place among the devices of its home, and the arrows to change it.
+                                    val sibs = state.devices.filter { it.home == row.d.home }
+                                    val at = sibs.indexOfFirst { it.key == row.d.key }
+                                    ArrangeArrows(
+                                        canMoveEarlier = at > 0,
+                                        canMoveLater = at in 0 until sibs.lastIndex,
+                                        label = deviceName(row.d),
+                                        onMoveEarlier = { scope.launch { vm.nudgeDevice(row.d.key, -1)?.let { vm.messages.tryEmit(it) } } },
+                                        onMoveLater = { scope.launch { vm.nudgeDevice(row.d.key, 1)?.let { vm.messages.tryEmit(it) } } },
+                                        modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -401,19 +466,25 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
         val live = state.devices.firstOrNull { it.key == d.key } ?: d
         DeviceSheet(vm, live, state.homes, onDismiss = { sheetFor = null })
     }
-    if (newHome) {
-        TextInputDialog("New home", "", "Home name", "Create", onDismiss = { newHome = false }, onConfirm = { vm.createHome(it) })
+    newGroup?.let { kind -> NewGroupDialog(vm, state, kind, onDismiss = { newGroup = null }) }
+    renameGroup?.let { g ->
+        TextInputDialog(
+            "Rename ${g.kind.label}", g.name, "${cap(g.kind.label)} name", "Save",
+            onDismiss = { renameGroup = null },
+            onConfirm = { vm.renameGroup(g, it) },
+        )
     }
-    renameHome?.let { h ->
-        TextInputDialog("Rename home", h.name, "Home name", "Save", onDismiss = { renameHome = null }, onConfirm = { vm.renameHome(h.id, it) })
-    }
-    deleteHome?.let { h ->
+    moveGroupFor?.let { g -> MoveGroupDialog(vm, state, g, onDismiss = { moveGroupFor = null }) }
+    deleteGroup?.let { g ->
         ConfirmDialog(
-            "Delete \"${h.name}\"?",
-            "Its devices aren't deleted: they go back to \"No home\".",
+            "Delete \"${g.name}\"?",
+            when (g.kind) {
+                GroupKind.HOME -> "Its devices aren't deleted: they go back to \"No home\"."
+                else -> "Nothing inside is deleted: its folders and homes move up a level."
+            },
             "Delete",
-            onDismiss = { deleteHome = null },
-            onConfirm = { scope.launch { vm.deleteHome(h.id)?.let { vm.messages.tryEmit(it) } } },
+            onDismiss = { deleteGroup = null },
+            onConfirm = { scope.launch { vm.deleteGroup(g)?.let { vm.messages.tryEmit(it) } } },
         )
     }
 }
@@ -512,31 +583,58 @@ private fun EmptyDevices() {
     }
 }
 
-/** A home's heading. Tapping it folds the home's devices away or brings them back. */
+/**
+ * The heading of an organization, folder or home (or of the devices in no home), indented by how deep it sits. Tapping
+ * it folds what is inside away or brings it back. While arranging, ▲ ▼ move it one place instead of the menu.
+ */
 @Composable
-private fun HomeHeader(
-    title: String,
+private fun GroupHeader(
+    group: Group?,
+    depth: Int,
     count: Int,
     expanded: Boolean,
     summary: String?,
+    arranging: Boolean,
+    canMoveEarlier: Boolean,
+    canMoveLater: Boolean,
     onToggle: () -> Unit,
     onRename: (() -> Unit)?,
+    onMove: (() -> Unit)?,
     onDelete: (() -> Unit)?,
+    onMoveEarlier: () -> Unit,
+    onMoveLater: () -> Unit,
 ) {
+    val title = group?.name ?: "No home"
+    val kind = group?.kind
     val rotation by animateFloatAsState(if (expanded) 0f else -90f, Motion.bouncy, label = "chevron")
     var menu by remember { mutableStateOf(false) }
+    val icon = when (kind) {
+        GroupKind.ORG -> Icons.Rounded.Business
+        GroupKind.FOLDER -> Icons.Rounded.Folder
+        GroupKind.HOME -> Icons.Rounded.Home
+        null -> Icons.Rounded.HomeWork
+    }
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp)
+            .padding(top = if (depth == 0) 8.dp else 2.dp, start = (depth * 16).dp)
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClickLabel = if (expanded) "Collapse $title" else "Expand $title", onClick = onToggle)
             .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(icon, null, Modifier.size(22.dp), tint = if (kind == GroupKind.ORG) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(
+                    title,
+                    style = if (kind == GroupKind.HOME || kind == null) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                    color = if (kind == GroupKind.ORG) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
                 Spacer(Modifier.width(10.dp))
                 Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                     Text(
@@ -551,15 +649,21 @@ private fun HomeHeader(
                 Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (onRename != null || onDelete != null) {
+        if (arranging && group != null) {
+            IconButton(onClick = onMoveEarlier, enabled = canMoveEarlier) { Icon(Icons.Rounded.ArrowUpward, "Move $title up") }
+            IconButton(onClick = onMoveLater, enabled = canMoveLater) { Icon(Icons.Rounded.ArrowDownward, "Move $title down") }
+        } else if (group != null) {
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = MaterialTheme.shapes.medium) {
                     onRename?.let {
-                        DropdownMenuItem(text = { Text("Rename home") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; it() })
+                        DropdownMenuItem(text = { Text("Rename ${group.kind.label}") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; it() })
+                    }
+                    onMove?.let {
+                        DropdownMenuItem(text = { Text("Move ${group.kind.label}…") }, leadingIcon = { Icon(Icons.Rounded.DriveFileMove, null) }, onClick = { menu = false; it() })
                     }
                     onDelete?.let {
-                        DropdownMenuItem(text = { Text("Delete home") }, leadingIcon = { Icon(Icons.Rounded.Delete, null) }, onClick = { menu = false; it() })
+                        DropdownMenuItem(text = { Text("Delete ${group.kind.label}") }, leadingIcon = { Icon(Icons.Rounded.Delete, null) }, onClick = { menu = false; it() })
                     }
                 }
             }
@@ -570,6 +674,30 @@ private fun HomeHeader(
             Modifier.padding(end = 8.dp).rotate(rotation),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** ◀ ▶ over a device's tile while arranging: one place earlier or later among the devices of its home. */
+@Composable
+private fun ArrangeArrows(
+    canMoveEarlier: Boolean,
+    canMoveLater: Boolean,
+    label: String,
+    onMoveEarlier: () -> Unit,
+    onMoveLater: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shadowElevation = 4.dp,
+        modifier = modifier,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onMoveEarlier, enabled = canMoveEarlier) { Icon(Icons.Rounded.ChevronLeft, "Move $label earlier") }
+            IconButton(onClick = onMoveLater, enabled = canMoveLater) { Icon(Icons.Rounded.ChevronRight, "Move $label later") }
+        }
     }
 }
 

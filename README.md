@@ -38,8 +38,15 @@ the same key, so a new version installs over the old one and keeps your servers,
   dehumidifiers** (target, tank) and **air purifiers** (fan mode, filter, AQI) open full screen too.
 - **Heat pumps, ACs, furnaces and boilers** switch on and off right on their tile. Thermometers, sensors, monitors and
   vents show their readings.
-- **Rename devices, make homes, move devices between homes:** long-press a tile (or use ⋮ on a full-screen device).
-  Homes fold away to keep things tidy.
+- **Organizations, folders and homes:** arrange your devices in a tree (an organization holds folders and homes, a
+  folder holds more, a home holds devices). ⋮ on the Devices page has **New organization**, **New folder** and **New
+  home** (a folder or home asks where it goes: **Inside**); each group's own ⋮ renames, moves (with everything in it)
+  or deletes it (deleting only removes that group: what was in it moves up a level). Everything folds away to keep things
+  tidy. Needs EZStats 0.8.0+; an older server just has homes.
+- **Arrange:** choose **Arrange** in ⋮ and every device gets ◀ ▶ and every organization, folder and home gets ▲ ▼ to move
+  it one place. The order is saved on the server, and devices are no longer sorted by type.
+- **Rename devices and put them in a home:** long-press a tile (or use ⋮ on a full-screen device). Homes are listed
+  with their path (`Acme Co › Kyleton › House 1`).
 
 **Weather** (if the server has the Weather tab on)
 - Built like a weather app: swipe between stations under a live animated sky (sun, cloud, rain, snow, thunderstorms),
@@ -89,6 +96,7 @@ leaves out whatever an older one doesn't send.
 | Forgot password? | EZStats 0.7.1+ |
 | How long a thermostat has been heating or cooling | EZStats 0.7.2+ on EZvac BETA 1.0 Pilot 8+ |
 | Thermostat run log | EZStats 0.7.3+ |
+| Organizations, folders, moving groups and arranging the order | EZStats 0.8.0+ |
 | Sunrise, day, sunset and night on the weather skies (and "Sunny") | EZStats 0.7.4+ (older servers keep a daytime sky) |
 | Controlling devices (otherwise the app is read-only) | EZvac BETA 1.0 Pilot 7+ |
 

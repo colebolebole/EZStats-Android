@@ -153,7 +153,9 @@ fun parseState(json: String): StateData {
         units = s.optString("units", "F"),
         writable = s.flag("writable"),
         readOnlyReason = s.strOrNull("readOnlyReason"),
-        homes = s.optJSONArray("homes").objects().map { Home(it.optString("id"), it.optString("name")) },
+        homes = s.optJSONArray("homes").objects().map { Home(it.optString("id"), it.optString("name"), it.optString("parent")) },
+        orgs = s.optJSONArray("orgs").objects().map { Group(it.optString("id"), it.optString("name"), it.optString("parent"), GroupKind.ORG) },
+        folders = s.optJSONArray("folders").objects().map { Group(it.optString("id"), it.optString("name"), it.optString("parent"), GroupKind.FOLDER) },
         devices = s.optJSONArray("devices").objects().map { parseDevice(it, s.optLong("generatedAt")) },
         worlds = s.optJSONArray("worlds").objects().map { w ->
             val season = w.optJSONObject("season")

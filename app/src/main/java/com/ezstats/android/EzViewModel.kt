@@ -13,7 +13,13 @@ import com.ezstats.android.data.AppSettings
 import com.ezstats.android.data.SettingsStore
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.EzApi
+import com.ezstats.android.data.Group
+import com.ezstats.android.data.GroupIndex
+import com.ezstats.android.data.GroupKind
 import com.ezstats.android.data.Server
+import com.ezstats.android.data.allGroups
+import com.ezstats.android.data.orderBefore
+import com.ezstats.android.data.siblingsOf
 import com.ezstats.android.data.ServerStore
 import com.ezstats.android.data.StateData
 import com.ezstats.android.data.WeatherData
@@ -84,8 +90,11 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
     var dashboardScale: () -> Float = { 1f }
     var rootSize = Size.Zero
 
-    /** Homes folded shut on the dashboard; remembered between launches. */
+    /** Groups (organizations, folders and homes) folded shut on the dashboard; remembered between launches. */
     var collapsed by mutableStateOf(store.collapsedHomes()); private set
+
+    /** Whether the dashboard is in "Arrange" mode: arrows on every device and group to change their order. */
+    var arranging by mutableStateOf(false)
 
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
@@ -494,9 +503,31 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun moveToHome(key: String, homeId: String) = mutate { it.setHome(key, homeId) }
 
-    suspend fun createHome(name: String) = mutate { it.createHome(name.trim()) }
+    // Organizations, folders and homes. Each returns the error to show, or null on success.
 
-    suspend fun renameHome(id: String, name: String) = mutate { it.renameHome(id, name.trim()) }
+    suspend fun createGroup(kind: GroupKind, name: String, parent: String = "") = mutate { it.createGroup(kind, name.trim(), parent) }
 
-    suspend fun deleteHome(id: String) = mutate { it.deleteHome(id) }
+    suspend fun renameGroup(group: Group, name: String) = mutate { it.renameGroup(group.kind, group.id, name.trim()) }
+
+    suspend fun deleteGroup(group: Group) = mutate { it.deleteGroup(group.kind, group.id) }
+
+    suspend fun moveGroup(group: Group, parent: String) = mutate { it.moveGroup(group.id, parent) }
+
+    /** Moves a group one place earlier (-1) or later (+1) among the groups beside it, and saves the order. */
+    suspend fun nudgeGroup(group: Group, delta: Int): String? {
+        val state = data ?: return null
+        val index = GroupIndex(state.allGroups())
+        val siblings = siblingsOf(index, group).map { it.id }
+        val before = orderBefore(siblings, siblings.indexOf(group.id), delta) ?: return null
+        return mutate { it.orderGroup(group.id, before) }
+    }
+
+    /** Moves a device one place earlier (-1) or later (+1) among the devices of its home, and saves the order. */
+    suspend fun nudgeDevice(key: String, delta: Int): String? {
+        val state = data ?: return null
+        val device = state.devices.firstOrNull { it.key == key } ?: return null
+        val siblings = state.devices.filter { it.home == device.home }.map { it.key }
+        val before = orderBefore(siblings, siblings.indexOf(key), delta) ?: return null
+        return mutate { it.orderDevice(key, before) }
+    }
 }
