@@ -11,8 +11,11 @@ import com.ezstats.android.data.Run
 import com.ezstats.android.data.Station
 import com.ezstats.android.data.Wind
 import com.ezstats.android.ui.common.UnitFmt
+import com.ezstats.android.ui.common.Cell
 import com.ezstats.android.ui.common.WidthClass
 import com.ezstats.android.ui.common.deviceGridColumns
+import com.ezstats.android.ui.common.gridSpans
+import com.ezstats.android.ui.common.phoneGridColumns
 import com.ezstats.android.ui.common.sidePaddingDp
 import com.ezstats.android.ui.common.stationListColumns
 import com.ezstats.android.ui.common.widthClassOf
@@ -122,6 +125,41 @@ class UiLogicTest {
         assertEquals(16, sidePaddingDp(680, 680))
         assertEquals(300, sidePaddingDp(1280, 680)) // a tablet: the rest is shared between the two sides
         assertEquals(24, sidePaddingDp(700, 680, minDp = 24))
+    }
+
+    @Test
+    fun anArrangedOrderNeverLeavesAHoleInTheGrid() {
+        val (full, wide, small) = Triple(Cell.FULL, Cell.WIDE, Cell.SMALL)
+        // A phone with two columns: a small tile before a wide one stretches to fill its row.
+        assertEquals(listOf(2, 2), gridSpans(listOf(small, wide), 2).toList())
+        assertEquals(listOf(1, 1, 2), gridSpans(listOf(small, small, wide), 2).toList())
+        // One column: everything is one wide.
+        assertEquals(listOf(1, 1, 1), gridSpans(listOf(full, wide, small), 1).toList())
+        // Three columns: a wide tile takes the whole row (as it always did), so a small one before it stretches.
+        assertEquals(listOf(3, 3, 1), gridSpans(listOf(small, wide, small), 3).toList())
+        // A tablet with four columns: three small tiles, then two wide ones.
+        assertEquals(listOf(4, 1, 1, 2, 2, 2), gridSpans(listOf(full, small, small, small, wide, wide), 4).toList())
+        // A heading after a short row stretches the row's last tile too.
+        assertEquals(listOf(4, 4), gridSpans(listOf(small, full), 4).toList())
+        assertEquals(emptyList<Int>(), gridSpans(emptyList(), 4).toList())
+        // Whatever the order and the width, every finished row adds up to exactly the number of columns.
+        val random = java.util.Random(7)
+        for (columns in 1..9) repeat(200) {
+            val cells = List(random.nextInt(30)) { Cell.entries[random.nextInt(3)] }
+            val spans = gridSpans(cells, columns)
+            var used = 0
+            spans.forEachIndexed { i, s ->
+                assertTrue("span $s of ${cells[i]} in $columns columns", s in 1..columns)
+                used += s
+                assertTrue("a row of $columns ran over ($cells)", used <= columns)
+                if (used == columns) used = 0
+                // The only partial row allowed is the last one: a heading always starts a fresh row.
+                if (cells.getOrNull(i + 1) == Cell.FULL) assertEquals("a heading follows a partial row", 0, used)
+            }
+        }
+        assertEquals(1, phoneGridColumns(328)) // a narrow phone
+        assertEquals(2, phoneGridColumns(380)) // a normal one
+        assertEquals(5, phoneGridColumns(868)) // a phone on its side
     }
 
     @Test

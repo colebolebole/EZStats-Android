@@ -9,7 +9,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ezstats.android.data.ApiException
+import com.ezstats.android.data.AppInstaller
 import com.ezstats.android.data.AppSettings
+import com.ezstats.android.data.ReleaseClient
+import com.ezstats.android.data.UpdateState
+import com.ezstats.android.data.isNewerVersion
 import com.ezstats.android.data.SettingsStore
 import com.ezstats.android.data.Device
 import com.ezstats.android.data.EzApi
@@ -32,6 +36,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.IOException
 
 enum class Status { CHECKING, OFFLINE, LOGIN, READY }
 
@@ -116,6 +122,77 @@ class EzViewModel(app: Application) : AndroidViewModel(app) {
             bind()
             check()
             showCached()
+        }
+    }
+
+    // --- updates of the app itself, from the latest GitHub release -----------------------------------------------
+
+    private val releases = ReleaseClient()
+    private val installer = AppInstaller(app)
+
+    /** Where checking for, downloading and installing a newer version of the app has got to. */
+    var update by mutableStateOf<UpdateState>(UpdateState.Idle); private set
+
+    /** Asks GitHub for the latest release. A [quiet] check (the one on launch) says nothing unless there is a newer version. */
+    fun checkForUpdate(quiet: Boolean = false) {
+        val now = update
+        if (now is UpdateState.Checking || now is UpdateState.Downloading || now is UpdateState.Ready) return
+        if (!quiet) update = UpdateState.Checking
+        viewModelScope.launch {
+            try {
+                val latest = releases.latest()
+                settingsStore.markUpdateCheck()
+                update = when {
+                    latest != null && isNewerVersion(latest.version, BuildConfig.VERSION_NAME) -> UpdateState.Available(latest)
+                    quiet -> now
+                    else -> UpdateState.UpToDate
+                }
+            } catch (e: IOException) {
+                update = if (quiet) now else UpdateState.Failed(e.message ?: "Couldn't reach GitHub.")
+            } catch (e: Exception) {
+                update = if (quiet) now else UpdateState.Failed("GitHub sent something the app didn't understand.")
+            }
+        }
+    }
+
+    /** Downloads the newer version found by [checkForUpdate], checks it is really an update of this app, and gets it ready to install. */
+    fun downloadUpdate() {
+        val release = (update as? UpdateState.Available)?.release ?: return
+        update = UpdateState.Downloading(release, 0f)
+        viewModelScope.launch {
+            try {
+                installer.clear()
+                val file = releases.download(release.assetUrl, installer.updateFile(release), release.size) { p ->
+                    update = UpdateState.Downloading(release, p)
+                }
+                val problem = withContext(Dispatchers.IO) { installer.problemWith(file, release) }
+                update = if (problem == null) UpdateState.Ready(release, file) else {
+                    file.delete()
+                    UpdateState.Failed(problem)
+                }
+            } catch (e: IOException) {
+                update = UpdateState.Failed(e.message ?: "The download failed.")
+            }
+        }
+    }
+
+    /** Android 8+ asks the user to allow each app to install apps; until then the installer refuses. */
+    fun canInstallUpdates() = installer.canInstall()
+
+    fun allowInstallsIntent() = installer.allowInstallsIntent()
+
+    fun installIntent(file: File) = installer.installIntent(file)
+
+    /** Forgets a failed or finished attempt, back to where a new check can start. */
+    fun resetUpdate() {
+        if (update is UpdateState.Failed || update is UpdateState.UpToDate) update = UpdateState.Idle
+    }
+
+    // After the declarations above, which an init block must not run before.
+    init {
+        // A quiet look for a newer version of the app, at most every few hours; it only says something if there is one.
+        if (settings.autoUpdateCheck && System.currentTimeMillis() - settingsStore.lastUpdateCheck() > 6 * 3_600_000L) {
+            checkForUpdate(quiet = true)
         }
     }
 

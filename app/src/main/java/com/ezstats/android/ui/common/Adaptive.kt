@@ -43,6 +43,41 @@ fun deviceGridColumns(contentDp: Int): Int? {
     return wideTiles * 2
 }
 
+/** How many 164 dp tiles fit across [contentDp] (with 12 dp between): what the grid on a phone has always done. */
+fun phoneGridColumns(contentDp: Int): Int = max(1, (contentDp + 12) / (164 + 12))
+
+/** What an item in the devices grid is, for working out how many columns it takes. */
+enum class Cell { FULL, WIDE, SMALL }
+
+/**
+ * How many columns each of [cells] takes in a grid of [columns]: a FULL item (a heading or a strip) the whole row, a
+ * WIDE tile (a thermostat) two columns, or the whole row when there are three or fewer, and a SMALL tile one. Where the
+ * next item doesn't fit in what is left of a row, the item before it stretches to fill the row, so the order you
+ * arranged them in never leaves a hole.
+ */
+fun gridSpans(cells: List<Cell>, columns: Int): IntArray {
+    val cols = max(1, columns)
+    val spans = IntArray(cells.size) { i ->
+        when (cells[i]) {
+            Cell.FULL -> cols
+            Cell.WIDE -> if (cols <= 3) cols else 2
+            Cell.SMALL -> 1
+        }
+    }
+    var used = 0
+    var last = -1
+    for (i in cells.indices) {
+        if (used > 0 && used + spans[i] > cols) {
+            spans[last] += cols - used
+            used = 0
+        }
+        used += spans[i]
+        last = i
+        if (used >= cols) used = 0
+    }
+    return spans
+}
+
 /** Columns of the weather station list: one on a phone, two on a small tablet, three on a big one. */
 fun stationListColumns(widthDp: Int): Int = when (widthClassOf(widthDp)) {
     WidthClass.COMPACT -> 1

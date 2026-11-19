@@ -2,9 +2,13 @@ package com.ezstats.android.ui.dashboard
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -56,8 +60,13 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.UnfoldLess
 import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,7 +95,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -100,8 +112,10 @@ import com.ezstats.android.data.GroupIndex
 import com.ezstats.android.data.GroupKind
 import com.ezstats.android.data.NO_HOME
 import com.ezstats.android.data.StateData
+import com.ezstats.android.data.UpdateState
 import com.ezstats.android.data.allGroups
 import com.ezstats.android.data.flattenGroups
+import com.ezstats.android.ui.common.Cell
 import com.ezstats.android.ui.common.ConfirmDialog
 import com.ezstats.android.ui.common.LocalUnits
 import com.ezstats.android.ui.common.StatusPill
@@ -111,6 +125,8 @@ import com.ezstats.android.ui.common.deviceName
 import com.ezstats.android.ui.common.entrance
 import com.ezstats.android.ui.common.greeting
 import com.ezstats.android.ui.common.deviceGridColumns
+import com.ezstats.android.ui.common.gridSpans
+import com.ezstats.android.ui.common.phoneGridColumns
 import com.ezstats.android.ui.common.isShortScreen
 import com.ezstats.android.ui.common.rememberSidePadding
 import com.ezstats.android.ui.common.plural
@@ -131,6 +147,8 @@ private sealed interface DashRow {
     }
     data object Worlds : DashRow { override val key = "worlds" }
     data object Empty : DashRow { override val key = "empty" }
+    /** The bar at the top while arranging: what to do, and Done. */
+    data object Arranging : DashRow { override val key = "arranging" }
     /** An organization, folder or home (null: the devices in no home), indented by how deep it is. */
     data class Header(
         val group: Group?,
@@ -158,7 +176,8 @@ private fun homeSummary(list: List<Device>): String? {
     return parts.joinToString(" · ")
 }
 
-private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>) = buildList {
+private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>, arranging: Boolean) = buildList {
+    if (arranging) add(DashRow.Arranging)
     banner?.let { add(DashRow.Note(it, "Trying again…", true, "banner")) }
     if (!state.writable) {
         add(
@@ -210,12 +229,17 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
     var menu by remember { mutableStateOf(false) }
 
     // Worked out again only when what they depend on changes, not on every frame of an animation.
-    val rows = remember(state, vm.banner, vm.collapsed) { buildRows(state, vm.banner, vm.collapsed) }
+    val rows = remember(state, vm.banner, vm.collapsed, vm.arranging) { buildRows(state, vm.banner, vm.collapsed, vm.arranging) }
     val groupIds = remember(state.orgs, state.folders, state.homes, state.devices) {
         val homeIds = state.homes.mapTo(HashSet()) { it.id }
         state.allGroups().map { it.id } + (if (state.devices.any { it.home !in homeIds }) listOf(NO_HOME) else emptyList())
     }
     val allCollapsed = groupIds.isNotEmpty() && groupIds.all { it in vm.collapsed }
+
+    // Back leaves Arrange mode before it leaves anything else.
+    BackHandler(enabled = vm.arranging) { vm.arranging = false }
+    val haptic = LocalHapticFeedback.current
+    val tick = { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); Unit }
 
     // The full-screen view asks for its tile to be brought into view before it shrinks back into it:
     // the device may have been moved to another home, which may be folded shut or far down the list.
@@ -273,7 +297,13 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
             scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
         )
         val barActions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-                IconButton(onClick = { vm.showSettings = true }) { Icon(Icons.Rounded.Settings, "Settings") }
+                IconButton(onClick = { vm.showSettings = true }) {
+                    // A dot when a newer version of the app is waiting in Settings.
+                    val newVersion = vm.update is UpdateState.Available || vm.update is UpdateState.Ready
+                    BadgedBox(badge = { if (newVersion) Badge() }) {
+                        Icon(Icons.Rounded.Settings, if (newVersion) "Settings: a new version is available" else "Settings")
+                    }
+                }
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = MaterialTheme.shapes.medium) {
@@ -373,10 +403,17 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
             // of wide tiles fill the width; on a very wide screen the content stops growing and centres.
             val screenDp = LocalConfiguration.current.screenWidthDp
             val side = rememberSidePadding(1400.dp, if (screenDp >= 600) 24.dp else 16.dp)
-            val tabletColumns = deviceGridColumns(screenDp - (side.value * 2).toInt())
+            val contentDp = screenDp - (side.value * 2).toInt()
+            val tabletColumns = deviceGridColumns(contentDp)
+            val columns = tabletColumns ?: phoneGridColumns(contentDp)
+            // How many columns each row takes. The order is the one you arranged, so where a wide tile doesn't fit
+            // beside the one before it, that one stretches to fill the row instead of leaving a hole.
+            val spans = remember(rows, columns) {
+                gridSpans(rows.map { if (it is DashRow.Dev) (if (wide(it.d)) Cell.WIDE else Cell.SMALL) else Cell.FULL }, columns)
+            }
             LazyVerticalGrid(
                 state = gridState,
-                columns = tabletColumns?.let { GridCells.Fixed(it) } ?: GridCells.Adaptive(164.dp),
+                columns = GridCells.Fixed(columns),
                 contentPadding = PaddingValues(
                     start = side, end = side,
                     top = 4.dp,
@@ -390,14 +427,7 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                     rows,
                     key = { _, row -> row.key },
                     contentType = { _, row -> if (row is DashRow.Dev) (if (wide(row.d)) "wide" else "tile") else row::class },
-                    span = { _, row ->
-                        when {
-                            row is DashRow.Dev && !wide(row.d) -> GridItemSpan(1)
-                            // Two columns wide, or the whole row where two would leave a one-column hole.
-                            row is DashRow.Dev -> GridItemSpan(if (maxLineSpan <= 3) maxLineSpan else 2)
-                            else -> GridItemSpan(maxLineSpan)
-                        }
-                    },
+                    span = { index, _ -> GridItemSpan(spans.getOrElse(index) { 1 }) },
                 ) { index, row ->
                     Box(
                         Modifier
@@ -409,6 +439,7 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                             .entrance(row.key, index),
                     ) {
                         when (row) {
+                            DashRow.Arranging -> ArrangingBar(onDone = { vm.arranging = false })
                             is DashRow.Note -> Banner(row.message, row.note, row.error)
                             is DashRow.Summary -> SummaryStrip(row)
                             DashRow.Worlds -> WorldsStrip(state)
@@ -428,8 +459,8 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                                     onRename = group?.let { { renameGroup = it } },
                                     onMove = group?.takeIf { it.kind != GroupKind.ORG }?.let { { moveGroupFor = it } },
                                     onDelete = group?.let { { deleteGroup = it } },
-                                    onMoveEarlier = { group?.let { g -> scope.launch { vm.nudgeGroup(g, -1)?.let { vm.messages.tryEmit(it) } } } },
-                                    onMoveLater = { group?.let { g -> scope.launch { vm.nudgeGroup(g, 1)?.let { vm.messages.tryEmit(it) } } } },
+                                    onMoveEarlier = { tick(); group?.let { g -> scope.launch { vm.nudgeGroup(g, -1)?.let { vm.messages.tryEmit(it) } } } },
+                                    onMoveLater = { tick(); group?.let { g -> scope.launch { vm.nudgeGroup(g, 1)?.let { vm.messages.tryEmit(it) } } } },
                                 )
                             }
                             is DashRow.Dev -> Box {
@@ -441,16 +472,18 @@ fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridSt
                                     onLongPress = { sheetFor = row.d },
                                 )
                                 if (vm.arranging) {
-                                    // Its place among the devices of its home, and the arrows to change it.
+                                    // Over the tile: where it is among the devices of its home, and the arrows to move it.
                                     val sibs = state.devices.filter { it.home == row.d.home }
                                     val at = sibs.indexOfFirst { it.key == row.d.key }
-                                    ArrangeArrows(
+                                    ArrangeOverlay(
+                                        position = at + 1,
+                                        of = sibs.size,
+                                        label = deviceName(row.d),
                                         canMoveEarlier = at > 0,
                                         canMoveLater = at in 0 until sibs.lastIndex,
-                                        label = deviceName(row.d),
-                                        onMoveEarlier = { scope.launch { vm.nudgeDevice(row.d.key, -1)?.let { vm.messages.tryEmit(it) } } },
-                                        onMoveLater = { scope.launch { vm.nudgeDevice(row.d.key, 1)?.let { vm.messages.tryEmit(it) } } },
-                                        modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                                        onMoveEarlier = { tick(); scope.launch { vm.nudgeDevice(row.d.key, -1)?.let { vm.messages.tryEmit(it) } } },
+                                        onMoveLater = { tick(); scope.launch { vm.nudgeDevice(row.d.key, 1)?.let { vm.messages.tryEmit(it) } } },
+                                        modifier = Modifier.matchParentSize(),
                                     )
                                 }
                             }
@@ -619,6 +652,8 @@ private fun GroupHeader(
             .fillMaxWidth()
             .padding(top = if (depth == 0) 8.dp else 2.dp, start = (depth * 16).dp)
             .clip(MaterialTheme.shapes.medium)
+            // While arranging, a group you can move stands out from the page.
+            .background(if (arranging && group != null) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f) else Color.Transparent)
             .clickable(onClickLabel = if (expanded) "Collapse $title" else "Expand $title", onClick = onToggle)
             .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -650,8 +685,14 @@ private fun GroupHeader(
             }
         }
         if (arranging && group != null) {
-            IconButton(onClick = onMoveEarlier, enabled = canMoveEarlier) { Icon(Icons.Rounded.ArrowUpward, "Move $title up") }
-            IconButton(onClick = onMoveLater, enabled = canMoveLater) { Icon(Icons.Rounded.ArrowDownward, "Move $title down") }
+            FilledTonalIconButton(onClick = onMoveEarlier, enabled = canMoveEarlier, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Rounded.ArrowUpward, "Move $title up")
+            }
+            Spacer(Modifier.width(6.dp))
+            FilledTonalIconButton(onClick = onMoveLater, enabled = canMoveLater, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Rounded.ArrowDownward, "Move $title down")
+            }
+            Spacer(Modifier.width(6.dp))
         } else if (group != null) {
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
@@ -677,26 +718,59 @@ private fun GroupHeader(
     }
 }
 
-/** ◀ ▶ over a device's tile while arranging: one place earlier or later among the devices of its home. */
+/** The bar at the top of the page while arranging: what the arrows do, and a button to finish. */
 @Composable
-private fun ArrangeArrows(
+private fun ArrangingBar(onDone: () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.SwapHoriz, null)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Arranging", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Use the arrows to move devices and groups. It saves as you go.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Button(onClick = onDone, shapes = ButtonDefaults.shapes()) { Text("Done") }
+        }
+    }
+}
+
+/**
+ * Laid over a device's tile while arranging: the tile dims a little, gets an outline, and ◀ ▶ with its place ("2 of 5")
+ * in the middle. It also catches the taps, so arranging never opens a device by accident.
+ */
+@Composable
+private fun ArrangeOverlay(
+    position: Int,
+    of: Int,
+    label: String,
     canMoveEarlier: Boolean,
     canMoveLater: Boolean,
-    label: String,
     onMoveEarlier: () -> Unit,
     onMoveLater: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        shadowElevation = 4.dp,
-        modifier = modifier,
+    val shape = MaterialTheme.shapes.large
+    Box(
+        modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.58f))
+            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), shape)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onMoveEarlier, enabled = canMoveEarlier) { Icon(Icons.Rounded.ChevronLeft, "Move $label earlier") }
-            IconButton(onClick = onMoveLater, enabled = canMoveLater) { Icon(Icons.Rounded.ChevronRight, "Move $label later") }
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer, shadowElevation = 4.dp) {
+            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onMoveEarlier, enabled = canMoveEarlier, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Rounded.ChevronLeft, "Move $label earlier")
+                }
+                Text("$position of $of", style = MaterialTheme.typography.labelLarge.numeric, modifier = Modifier.widthIn(min = 44.dp), textAlign = TextAlign.Center)
+                IconButton(onClick = onMoveLater, enabled = canMoveLater, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Rounded.ChevronRight, "Move $label later")
+                }
+            }
         }
     }
 }

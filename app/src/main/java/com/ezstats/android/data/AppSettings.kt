@@ -19,6 +19,8 @@ data class AppSettings(
     val haptics: Boolean = true,
     /** "light", "medium" or "strong". */
     val hapticStrength: String = "medium",
+    /** Look for a newer version of the app on GitHub when it opens (at most every few hours). */
+    val autoUpdateCheck: Boolean = true,
 ) {
     companion object {
         val THEMES = listOf("system", "light", "dark")
@@ -42,7 +44,15 @@ class SettingsStore(context: Context) {
             animatedWeather = prefs.getBoolean("animated_weather", d.animatedWeather),
             haptics = prefs.getBoolean("haptics", d.haptics),
             hapticStrength = prefs.getString("haptic_strength", d.hapticStrength)?.takeIf { it in AppSettings.HAPTIC_STRENGTHS } ?: d.hapticStrength,
+            autoUpdateCheck = prefs.getBoolean("auto_update_check", d.autoUpdateCheck),
         )
+    }
+
+    /** When the app last asked GitHub for a newer version (epoch milliseconds), or 0. */
+    fun lastUpdateCheck(): Long = prefs.getLong("last_update_check", 0L)
+
+    fun markUpdateCheck(now: Long = System.currentTimeMillis()) {
+        prefs.edit().putLong("last_update_check", now).apply()
     }
 
     fun save(s: AppSettings) {
@@ -54,6 +64,7 @@ class SettingsStore(context: Context) {
             .putBoolean("animated_weather", s.animatedWeather)
             .putBoolean("haptics", s.haptics)
             .putString("haptic_strength", s.hapticStrength)
+            .putBoolean("auto_update_check", s.autoUpdateCheck)
             .apply()
     }
 }

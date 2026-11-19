@@ -1,8 +1,24 @@
 package com.ezstats.android.ui.settings
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.ezstats.android.data.UpdateState
+import com.ezstats.android.data.megabytes
+import com.ezstats.android.data.plainNotes
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Arrangement
@@ -171,6 +187,15 @@ fun SettingsScreen(vm: EzViewModel) {
                 }
             }
             item {
+                Group("App updates") {
+                    UpdateRow(vm)
+                    SwitchRow(
+                        Icons.Rounded.SystemUpdate, "Check when the app opens",
+                        "Looks for a new version on GitHub, at most every few hours", s.autoUpdateCheck,
+                    ) { v -> set { it.copy(autoUpdateCheck = v) } }
+                }
+            }
+            item {
                 Group("About") {
                     LinkRow(Icons.Rounded.Info, "EZStats for Android", "Version ${BuildConfig.VERSION_NAME}") {}
                     LinkRow(Icons.AutoMirrored.Rounded.OpenInNew, "Source code", "github.com/colebolebole/EZStats-Android") {
@@ -183,6 +208,112 @@ fun SettingsScreen(vm: EzViewModel) {
 }
 
 private fun cap(s: String) = s.replaceFirstChar { it.uppercase() }
+
+/**
+ * Checking for, downloading and installing a newer version of the app from its latest GitHub release. Each step is one
+ * row or card: check, "available" with the release notes, a progress bar, then Install (Android asks to allow installs
+ * from this app first, and always asks to confirm).
+ */
+@Composable
+private fun UpdateRow(vm: EzViewModel) {
+    val context = LocalContext.current
+    when (val u = vm.update) {
+        UpdateState.Idle ->
+            LinkRow(Icons.Rounded.SystemUpdate, "Check for updates", "Version ${BuildConfig.VERSION_NAME}") { vm.checkForUpdate() }
+
+        UpdateState.Checking -> ListItem(
+            headlineContent = { Text("Checking GitHub…") },
+            supportingContent = { Text("Version ${BuildConfig.VERSION_NAME}") },
+            leadingContent = { LoadingIndicator(Modifier.size(32.dp)) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+
+        UpdateState.UpToDate ->
+            LinkRow(Icons.Rounded.CheckCircle, "You're up to date", "Version ${BuildConfig.VERSION_NAME} is the latest. Tap to check again") { vm.checkForUpdate() }
+
+        is UpdateState.Available -> UpdateCard(
+            icon = Icons.Rounded.SystemUpdate,
+            title = "Version ${u.release.version} is available",
+            subtitle = "You have ${BuildConfig.VERSION_NAME}",
+            notes = plainNotes(u.release.notes),
+        ) {
+            Button(onClick = { vm.downloadUpdate() }, shapes = ButtonDefaults.shapes()) {
+                Text("Download" + megabytes(u.release.size).let { if (it.isEmpty()) "" else " ($it)" })
+            }
+            TextButton(onClick = { openUrl(context, u.release.pageUrl) }) { Text("Release page") }
+        }
+
+        is UpdateState.Downloading -> UpdateCard(
+            icon = Icons.Rounded.SystemUpdate,
+            title = "Downloading version ${u.release.version}",
+            subtitle = "${(u.progress * 100).toInt()}%",
+            notes = "",
+        ) {
+            LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth())
+        }
+
+        is UpdateState.Ready -> {
+            // Android 8+ makes you allow each app to install apps; look again when coming back from that page.
+            var allowed by remember { mutableStateOf(vm.canInstallUpdates()) }
+            LifecycleResumeEffect(Unit) {
+                allowed = vm.canInstallUpdates()
+                onPauseOrDispose { }
+            }
+            UpdateCard(
+                icon = Icons.Rounded.CheckCircle,
+                title = "Version ${u.release.version} is ready to install",
+                subtitle = if (allowed) "Checked: it is a newer version of this app, signed with the same key" else
+                    "Android needs your OK first: allow EZStats to install apps, then come back and tap Install.",
+                notes = "",
+            ) {
+                Button(
+                    onClick = {
+                        val intent = if (allowed) vm.installIntent(u.file) else vm.allowInstallsIntent()
+                        try {
+                            context.startActivity(intent)
+                        } catch (e: ActivityNotFoundException) {
+                            vm.messages.tryEmit("This phone has no app that can install it.")
+                        }
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text(if (allowed) "Install" else "Allow installs") }
+            }
+        }
+
+        is UpdateState.Failed -> LinkRow(Icons.Rounded.ErrorOutline, "Couldn't update", "${u.message} Tap to try again.") {
+            vm.resetUpdate()
+            vm.checkForUpdate()
+        }
+    }
+}
+
+/** A card inside the updates group: an icon and title, a line under it, the release notes if any, and its buttons. */
+@Composable
+private fun UpdateCard(icon: ImageVector, title: String, subtitle: String, notes: String, actions: @Composable () -> Unit) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (notes.isNotEmpty()) {
+            Text(notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
+    }
+}
+
+private fun openUrl(context: android.content.Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (e: ActivityNotFoundException) {
+        // no browser: nothing to do
+    }
+}
 
 /** A titled group of rows on one rounded surface. */
 @Composable

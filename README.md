@@ -24,6 +24,13 @@ Get the APK from the [latest release](https://github.com/colebolebole/EZStats-An
 your phone (Android will ask you to allow installing from your browser or file manager). Every release is signed with
 the same key, so a new version installs over the old one and keeps your servers, logins and favorite stations.
 
+After that the app updates itself from here: **Settings → App updates → Check for updates** looks at the latest
+release on GitHub, shows what's new, downloads the APK, checks that it is a newer version of this app signed with the
+same key, and hands it to Android to install. Android asks you to allow EZStats to install apps the first time, and always
+asks you to confirm. The app also looks quietly each time it opens (at most every few hours; switch that off in the same
+place), and Settings gets a dot when a new version is waiting. The only thing sent is a plain request to GitHub for the
+latest release, with no information about you or your phone.
+
 ## What it does
 
 **Devices**
@@ -43,8 +50,10 @@ the same key, so a new version installs over the old one and keeps your servers,
   home** (a folder or home asks where it goes: **Inside**); each group's own ⋮ renames, moves (with everything in it)
   or deletes it (deleting only removes that group: what was in it moves up a level). Everything folds away to keep things
   tidy. Needs EZStats 0.8.0+; an older server just has homes.
-- **Arrange:** choose **Arrange** in ⋮ and every device gets ◀ ▶ and every organization, folder and home gets ▲ ▼ to move
-  it one place. The order is saved on the server, and devices are no longer sorted by type.
+- **Arrange:** choose **Arrange** in ⋮ and a bar says so (with **Done**; Back also leaves it). Every device is outlined
+  and dimmed with ◀ ▶ and its place ("2 of 5") over it, and every organization, folder and home is highlighted with ▲ ▼,
+  to move it one place. The order is saved on the server, and devices are no longer sorted by type. Whatever the order,
+  the grid never leaves a hole: a tile that has no room for the next one beside it stretches to fill its row.
 - **Rename devices and put them in a home:** long-press a tile (or use ⋮ on a full-screen device). Homes are listed
   with their path (`Acme Co › Kyleton › House 1`).
 
