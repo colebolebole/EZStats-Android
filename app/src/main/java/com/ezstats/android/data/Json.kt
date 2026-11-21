@@ -98,6 +98,20 @@ private fun parseDevice(o: JSONObject, generatedAt: Long): Device {
     val link = o.optJSONObject("weather")?.let {
         WeatherLink(it.optString("station"), it.intOrNull("distance"))
     }
+    val isCar = o.optString("kind") == "car"
+    val car = if (!isCar) null else CarInfo(
+        license = o.optString("license"),
+        vehicleName = o.strOrNull("vehicleName") ?: o.optString("license"),
+        loaded = o.flag("loaded", true),
+        occupied = o.flag("occupied"),
+        climateMode = o.optString("climateMode", "auto"),
+        ambientF = o.dbl("ambientF"),
+        minTargetF = o.dbl("minTargetF"),
+        maxTargetF = o.dbl("maxTargetF"),
+        remote = o.flag("remote"),
+        remoteSecondsLeft = o.intOrNull("remoteSecondsLeft"),
+        remoteStartMinutes = o.intOrNull("remoteStartMinutes"),
+    )
     return Device(
         key = o.optString("key"),
         world = o.optString("world"),
@@ -110,7 +124,8 @@ private fun parseDevice(o: JSONObject, generatedAt: Long): Device {
         system = o.strOrNull("system")?.takeIf { it.isNotBlank() },
         modeMinutes = if (modeSince != null && generatedAt > 0) maxOf(0L, generatedAt - modeSince) / 60_000 else null,
         runs = runs,
-        roomF = o.dbl("roomF"),
+        // a car's cabin is its room, so the dial, tile and numbers work as for a thermostat
+        roomF = o.dbl("roomF") ?: if (isCar) o.dbl("cabinF") else null,
         targetF = o.dbl("targetF"),
         mode = o.optString("mode", "idle"),
         enabled = o.flag("enabled"),
@@ -131,12 +146,13 @@ private fun parseDevice(o: JSONObject, generatedAt: Long): Device {
         tank = o.dbl("tank"),
         filter = o.dbl("filter"),
         air = parseAir(o.optJSONObject("air")),
-        fanMode = o.strOrNull("fanMode"),
+        fanMode = o.strOrNull("fanMode") ?: if (isCar) o.strOrNull("fan") else null, // a car's fan is "auto", "1", "2" or "3"
         fanSpeed = o.strOrNull("fanSpeed"),
         insideF = o.dbl("insideF"),
         cold = cold,
         links = o.optInt("links"),
         reading = reading,
+        car = car,
     )
 }
 

@@ -217,6 +217,21 @@ class EzApiTest {
     }
 
     @Test
+    fun aCarsClimateControlIsChangedThroughTheSameCall() = runBlocking {
+        val a = api("abc123").also { sessions += "abc123" }
+        // The mode and fan of a car (EZStats with MTVehicles) are strings; a car's key is car:<plate>.
+        for ((action, value) in listOf("mode" to "heat", "fan" to "3", "fan" to "auto")) {
+            a.control("car:AB-12-C", action, value)
+            val sent = JSONObject(seen.last().substringAfter("/api/device/control "))
+            assertEquals("car:AB-12-C", sent.getString("key"))
+            assertEquals(action, sent.getString("action"))
+            assertEquals(value, sent.getString("value")) // "3" stays text, not a number
+        }
+        a.control("car:AB-12-C", "enabled", true)
+        assertEquals(true, JSONObject(seen.last().substringAfter("/api/device/control ")).getBoolean("value"))
+    }
+
+    @Test
     fun controlSendsHeaderCookieAndBody() = runBlocking {
         val a = api("abc123").also { sessions += "abc123" }
         val ok = a.control("w:1:2:3", "profile", "turbo")

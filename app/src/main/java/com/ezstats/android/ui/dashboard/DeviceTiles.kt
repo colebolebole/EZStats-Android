@@ -19,8 +19,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.Air
+import androidx.compose.material.icons.rounded.AutoMode
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.HeatPump
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
@@ -57,6 +64,7 @@ import com.ezstats.android.ui.common.UNIT_STATE
 import com.ezstats.android.ui.common.UnitFmt
 import com.ezstats.android.ui.common.WIND
 import com.ezstats.android.ui.common.cap
+import com.ezstats.android.ui.common.carModeName
 import com.ezstats.android.ui.common.deviceIcon
 import com.ezstats.android.ui.common.deviceName
 import com.ezstats.android.ui.common.deviceWhere
@@ -73,7 +81,7 @@ import kotlin.math.roundToInt
 // --- what a device is doing, as a tone and a word ------------------------------------------------------------
 
 fun deviceTone(d: Device): Tone = when {
-    d.isThermostat -> when {
+    d.isThermostat || d.isCar -> when {
         !d.enabled -> Tone.NEUTRAL
         d.mode == "heating" -> Tone.HEAT
         d.mode == "cooling" -> Tone.COOL
@@ -98,6 +106,13 @@ fun deviceTone(d: Device): Tone = when {
 
 fun deviceStatus(d: Device): String = when {
     d.isThermostat -> if (d.enabled) cap(d.mode) else "Off"
+    // A car's climate control is "On" while it waits for the cabin to need heating or cooling.
+    d.isCar -> when {
+        !d.enabled -> "Off"
+        d.running && d.mode == "heating" -> "Heating"
+        d.running && d.mode == "cooling" -> "Cooling"
+        else -> "On"
+    }
     d.kind == "equipment" -> when {
         !d.enabled -> "Off"
         d.running -> when (d.mode) { "heating" -> "Heating"; "cooling" -> "Cooling"; else -> "Running" }
@@ -130,6 +145,7 @@ fun DeviceTile(vm: EzViewModel, d: Device, station: Station?, wide: Boolean, onL
     val modifier = if (d.opensDetail) Modifier.trackTile(vm, d.key) else Modifier
     when {
         d.isThermostat -> ThermostatTile(d, station, open, onLongPress, modifier)
+        d.isCar -> CarTile(d, open, onLongPress, modifier)
         wide && d.isFridge -> RefrigeratorTile(d, open, onLongPress, modifier)
         else -> CompactTile(vm, d, open, onLongPress, modifier)
     }
@@ -196,6 +212,71 @@ private fun ThermostatTile(d: Device, station: Station?, onClick: (() -> Unit)?,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+            }
+        }
+    }
+}
+
+
+// --- a vehicle's climate control (MTVehicles) ------------------------------------------------------------------------
+
+/** "8 min left": a remote start counts down in whole minutes (a started minute counts), so the tile changes once a minute. */
+fun remoteLeftText(seconds: Int): String = "${maxOf(1, (seconds + 59) / 60)} min left"
+
+/**
+ * A car's climate control: the temperature inside, its target on a small dial, what it is doing, and the chips of what it
+ * is set to. It opens full screen like a thermostat.
+ */
+@Composable
+private fun CarTile(d: Device, onClick: (() -> Unit)?, onLongPress: () -> Unit, modifier: Modifier) {
+    val units = LocalUnits.current
+    val tone = deviceTone(d)
+    val colors = toneColors(tone)
+    val car = d.car
+    PressCard(
+        onClick = onClick,
+        onLongClick = onLongPress,
+        onLongClickLabel = "More options",
+        modifier = modifier.fillMaxWidth(),
+        color = tileColor(tone, 0.55f),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            TileHeader(d, colors.container, colors.accent) { StatusPill(deviceStatus(d), tone) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        RollingText(units.one(d.roomF), style = MaterialTheme.typography.displayMedium.numeric)
+                        Text("°${units.symbol}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
+                    }
+                    Text(
+                        when {
+                            d.roomF == null -> if (car?.loaded == false) "Parked, not loaded" else "Not measured yet"
+                            d.enabled && d.targetF != null -> "Inside · set to ${units.target(d.targetF)}°"
+                            else -> "Inside"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                MiniDial(d, Modifier.size(92.dp))
+            }
+            if (car != null) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip(
+                        when (car.climateMode) {
+                            "cool" -> Icons.Rounded.AcUnit
+                            "heat" -> Icons.Rounded.LocalFireDepartment
+                            else -> Icons.Rounded.AutoMode
+                        },
+                        carModeName(car.climateMode),
+                    )
+                    Chip(Icons.Rounded.Air, "Fan " + (d.fanMode ?: "auto"))
+                    car.ambientF?.let { Chip(Icons.Rounded.WbSunny, "${units.whole(it)} outside") }
+                    if (car.occupied) Chip(Icons.Rounded.Person, "Someone is in it")
+                    if (car.remote && car.remoteSecondsLeft != null) {
+                        Chip(Icons.Rounded.Timer, "Remote start · ${remoteLeftText(car.remoteSecondsLeft)}")
+                    }
                 }
             }
         }

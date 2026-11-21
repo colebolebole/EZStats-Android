@@ -41,6 +41,12 @@ latest release, with no information about you or your phone.
   - Says how long it has been heating or cooling (`Cooling for 12 min`).
   - A **log** of its last 5 runs, newest first (`Heated for 3 min · 11:44 PM`: how long it ran and when it stopped).
     The card on the dashboard shows the newest one.
+- **Vehicles:** with [MTVehicles](https://github.com/colebolebole/MinetopiaVehicles) on the server, the climate control
+  of a car, boat or aircraft you have linked (`/ezstats own` while sitting in it) is a device like a thermostat: the
+  temperature inside, a dial for the target, power, the **mode** (Auto, A/C or Heater) and the **fan** (Auto, 1, 2 or 3),
+  and the temperature outside. Switching it on while nobody is in the car is a **remote start**: it runs for a while
+  (the tile counts down what is left) so the car is comfortable when you get in. It says where the car is, or that it is
+  parked where no chunk is loaded (you can still change its settings then). Only the car's owner can change it.
 - **Fridges, freezers and refrigerators** (targets, defrost, auto-defrost, door, frost), **humidifiers and
   dehumidifiers** (target, tank) and **air purifiers** (fan mode, filter, AQI) open full screen too.
 - **Heat pumps, ACs, furnaces and boilers** switch on and off right on their tile. Thermometers, sensors, monitors and
@@ -110,6 +116,7 @@ leaves out whatever an older one doesn't send.
 | Organizations, folders, moving groups and arranging the order | EZStats 0.8.0+ |
 | Devices straight in an organization or folder (the **In** list) | EZStats 0.8.1+ |
 | Moving a group to a chosen position in one step (**Position** in Move) | EZStats 0.8.2+ (0.8.0 and 0.8.1 get the same result in two steps) |
+| Vehicle climate controls (cars, boats, aircraft) | EZStats with MTVehicles support (it was on the `mtvehicles-hvac` branch when 2.6.0 was made) and an MTVehicles with its car climate control |
 | Sunrise, day, sunset and night on the weather skies (and "Sunny") | EZStats 0.7.4+ (older servers keep a daytime sky) |
 | Controlling devices (otherwise the app is read-only) | EZvac BETA 1.0 Pilot 7+ |
 
@@ -129,7 +136,8 @@ Publishing to a store would need a real signing key.
 ### Working without a Minecraft server
 
 `tools/mock_server.py` is a stand-in EZStats server (Python 3, no dependencies) with homes, every kind of device and
-nine weather stations across two worlds. Rooms drift toward their targets and the weather moves while it runs.
+nine weather stations across two worlds, and two vehicle climate controls (a car with a remote start running, and a boat
+parked in an unloaded chunk). Rooms drift toward their targets and the weather moves while it runs.
 
 ```
 python tools/mock_server.py                # also: --celsius, --readonly, --no-weather, --latency 0.5

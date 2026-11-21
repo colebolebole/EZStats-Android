@@ -159,23 +159,52 @@ data class Device(
     // instruments
     val links: Int = 0,
     val reading: Reading? = null,
+    // a vehicle's climate control (kind "car", from MTVehicles). Its [roomF] is the temperature inside, [mode] is
+    // heating, cooling or idle like a thermostat's, [running] says it is doing that right now, and [fanMode] is
+    // auto, 1, 2 or 3.
+    val car: CarInfo? = null,
 ) {
     val isThermostat get() = kind == "thermostat"
+    val isCar get() = kind == "car"
     val isFridge get() = kind == "unit" && type in FRIDGE_TYPES
     val isHumidityUnit get() = kind == "unit" && (type == "dehumidifier" || type == "humidifier")
     val isPurifier get() = kind == "unit" && type == "air_purifier"
 
     /** Whether tapping the device opens it full screen. */
-    val opensDetail get() = isThermostat || isFridge || isHumidityUnit || isPurifier
+    val opensDetail get() = isThermostat || isCar || isFridge || isHumidityUnit || isPurifier
 
-    /** A thermostat actively heating or cooling. */
-    val isHeating get() = isThermostat && enabled && mode == "heating"
-    val isCooling get() = isThermostat && enabled && mode == "cooling"
+    /** A thermostat (or a vehicle's climate control) actively heating or cooling. */
+    val isHeating get() = (isThermostat || isCar) && enabled && mode == "heating"
+    val isCooling get() = (isThermostat || isCar) && enabled && mode == "cooling"
 
     companion object {
         val FRIDGE_TYPES = setOf("fridge", "deep_freezer", "refrigerator", "mini_fridge")
     }
 }
+
+/**
+ * What a vehicle's climate control adds to a [Device] (EZStats with MTVehicles). Temperatures are °F like everywhere
+ * else; ones the server doesn't know are null.
+ */
+@Immutable
+data class CarInfo(
+    val license: String,
+    /** The vehicle's own name; the device's label is the climate control's name when it has one. */
+    val vehicleName: String,
+    /** Whether the vehicle is spawned in a loaded chunk: otherwise it has no place ([Device.world] is empty). */
+    val loaded: Boolean = true,
+    val occupied: Boolean = false,
+    /** "auto", "cool" or "heat". */
+    val climateMode: String = "auto",
+    val ambientF: Double? = null,
+    val minTargetF: Double? = null,
+    val maxTargetF: Double? = null,
+    /** It is running without a driver (a remote start), for [remoteSecondsLeft] more seconds. */
+    val remote: Boolean = false,
+    val remoteSecondsLeft: Int? = null,
+    /** How long a remote start lasts; 0 or null for none. */
+    val remoteStartMinutes: Int? = null,
+)
 
 @Immutable
 data class Home(val id: String, val name: String, val parent: String = "")

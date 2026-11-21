@@ -77,6 +77,14 @@ devices = [
     dev("v1", "vent", "air", "", "", 130, 64, -30),
     dev("w1", "instrument", "wind_sensor", "Roof vane", "", 126, 80, -40,
         reading={"windMs": 6.4, "windLevel": "breezy", "windFrom": "NW"}),
+    # A vehicle's climate control (MTVehicles): the cabin is its room.
+    dev("car:AB-12-C", "car", "car_climate", "Daily driver", "", 140, 64, -20, vehicleName="Audi A4", license="AB-12-C",
+        loaded=True, occupied=False, enabled=True, running=True, mode="cooling", climateMode="auto", fan="auto",
+        targetF=70, minTargetF=60, maxTargetF=85, cabinF=78.0, ambientF=91.0, remote=True, remoteSecondsLeft=420,
+        remoteStartMinutes=10),
+    dev("car:ZZ-99-Z", "car", "car_climate", "Harbour boat", "", 0, 0, 0, vehicleName="Harbour boat", license="ZZ-99-Z",
+        loaded=False, occupied=False, enabled=False, running=False, mode="idle", climateMode="auto", fan="auto",
+        targetF=72, minTargetF=60, maxTargetF=85, remote=False, remoteStartMinutes=10),
 ]
 
 SKIES = ["clear", "clear", "rain", "clear", "thunder", "snow", "rain"]
@@ -153,6 +161,21 @@ def tick():
                     else:
                         d["mode"] = "idle"
                         d["roomF"] = round(d["roomF"] + random.uniform(-0.03, 0.03), 2)
+                elif d["kind"] == "car" and d.get("cabinF") is not None:
+                    tgt = d.get("targetF") or d["cabinF"]
+                    if d.get("enabled"):
+                        diff = tgt - d["cabinF"]
+                        d["running"] = abs(diff) > 0.4
+                        d["mode"] = ("heating" if diff > 0 else "cooling") if d["running"] else "idle"
+                        d["cabinF"] = round(d["cabinF"] + max(-0.15, min(0.15, diff * 0.03)), 2)
+                    else:
+                        d["running"] = False
+                        d["mode"] = "idle"
+                    if d.get("remote"):
+                        d["remoteSecondsLeft"] = max(0, d.get("remoteSecondsLeft", 0) - 1)
+                        if d["remoteSecondsLeft"] == 0:
+                            d["remote"] = False
+                            d["enabled"] = False
                 elif d["type"] == "dehumidifier" and d.get("powered"):
                     d["tank"] = min(1.0, round(d.get("tank", 0) + 0.002, 3))
                     d["state"] = "emptying" if d["tank"] >= 1 else "running"
@@ -257,6 +280,16 @@ class Handler(BaseHTTPRequestHandler):
                 a, v = b.get("action"), b.get("value")
                 field = {"target": "targetF", "enabled": "enabled", "profile": "profile", "powered": "powered",
                          "setpoint": "setpoint", "fan": "fanMode", "equipment-enabled": "enabled"}.get(a)
+                if d["kind"] == "car":
+                    # A car's climate control: mode is its climateMode, fan is auto/1/2/3, and switching it on with
+                    # nobody in it is a remote start.
+                    field = {"target": "targetF", "enabled": "enabled", "mode": "climateMode", "fan": "fan"}.get(a)
+                    if a == "enabled" and v and not d.get("occupied") and d.get("loaded"):
+                        d["remote"], d["remoteSecondsLeft"] = True, d.get("remoteStartMinutes", 10) * 60
+                    if a == "enabled" and not v:
+                        d["remote"] = False
+                    if a == "mode" and v not in ("auto", "cool", "heat"):
+                        return self.send(400, {"error": "Bad request"})
                 if field:
                     d[field] = v
                 elif a == "fridge-setpoint":

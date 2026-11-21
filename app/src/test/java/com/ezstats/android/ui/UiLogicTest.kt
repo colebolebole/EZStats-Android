@@ -11,6 +11,13 @@ import com.ezstats.android.data.Run
 import com.ezstats.android.data.Station
 import com.ezstats.android.data.Wind
 import com.ezstats.android.ui.common.UnitFmt
+import com.ezstats.android.ui.common.deviceWhere
+import com.ezstats.android.ui.common.typeName
+import com.ezstats.android.ui.dashboard.deviceStatus
+import com.ezstats.android.ui.dashboard.deviceTone
+import com.ezstats.android.ui.dashboard.remoteLeftText
+import com.ezstats.android.ui.detail.targetRange
+import com.ezstats.android.ui.theme.Tone
 import com.ezstats.android.ui.common.Cell
 import com.ezstats.android.ui.common.WidthClass
 import com.ezstats.android.ui.common.deviceGridColumns
@@ -299,6 +306,76 @@ class UiLogicTest {
         assertEquals(52, c.stepF(50, 1))
         assertEquals("10°C", c.wholeF(50))
         assertTrue(abs(c.show(212.0) - 100.0) < 1e-9)
+    }
+
+    private val carState = """
+        {"player":"Steve","weatherTab":false,"state":{"generatedAt":1800000000000,"units":"F","writable":true,
+         "devices":[
+          {"key":"car:AB-12-C","kind":"car","type":"car_climate","label":"Daily driver","vehicleName":"Audi A4","license":"AB-12-C",
+           "loaded":true,"world":"world","x":10,"y":64,"z":-20,"occupied":false,"enabled":true,"running":true,"mode":"cooling",
+           "climateMode":"cool","fan":"2","targetF":68,"minTargetF":62,"maxTargetF":80,"cabinF":74.5,"ambientF":88,
+           "remote":true,"remoteSecondsLeft":121,"remoteStartMinutes":10,"home":"","nickname":"Our car"},
+          {"key":"car:ZZ-99-Z","kind":"car","type":"car_climate","label":"Boat","vehicleName":"Boat","license":"ZZ-99-Z",
+           "loaded":false,"world":"","x":0,"y":0,"z":0,"occupied":false,"enabled":false,"running":false,"mode":"idle",
+           "climateMode":"auto","fan":"auto","targetF":72,"remote":false,"home":""}
+         ]}}
+    """
+
+    @Test
+    fun aCarsClimateControlIsReadLikeAThermostat() {
+        val (car, parked) = com.ezstats.android.data.parseState(carState).devices
+        assertTrue(car.isCar)
+        assertTrue(car.opensDetail)
+        assertFalse(car.isThermostat)
+        assertEquals(74.5, car.roomF!!, 0.0) // the cabin is its room
+        assertEquals("2", car.fanMode)
+        assertTrue(car.isCooling)
+        assertFalse(car.isHeating)
+        car.car!!.let {
+            assertEquals("AB-12-C", it.license)
+            assertEquals("Audi A4", it.vehicleName)
+            assertEquals("cool", it.climateMode)
+            assertEquals(88.0, it.ambientF!!, 0.0)
+            assertTrue(it.remote)
+            assertEquals(121, it.remoteSecondsLeft)
+            assertEquals(10, it.remoteStartMinutes)
+            assertTrue(it.loaded)
+        }
+        // A car that isn't in a loaded chunk has no cabin reading and no place.
+        assertNull(parked.roomF)
+        assertFalse(parked.car!!.loaded)
+        assertNull(parked.car!!.remoteSecondsLeft)
+        assertNull(parked.car!!.ambientF)
+        assertFalse(parked.isCooling)
+    }
+
+    @Test
+    fun aCarSaysWhatItIsDoingAndWhereItIs() {
+        val (car, parked) = com.ezstats.android.data.parseState(carState).devices
+        assertEquals("Cooling", deviceStatus(car))
+        assertEquals(Tone.COOL, deviceTone(car))
+        assertEquals("Off", deviceStatus(parked))
+        assertEquals(Tone.NEUTRAL, deviceTone(parked))
+        // On but not running (the cabin is where it should be) is "On", not "Idle".
+        val waiting = car.copy(running = false, mode = "idle")
+        assertEquals("On", deviceStatus(waiting))
+        // Its own name, with the plate, then where it is; or that it is not loaded.
+        assertEquals("Audi A4 (AB-12-C) · world 10, 64, -20", deviceWhere(car.copy(nickname = null)))
+        assertEquals("Daily driver · Audi A4 (AB-12-C) · world 10, 64, -20", deviceWhere(car)) // nicknamed: its own name first
+        assertEquals("ZZ-99-Z · not loaded", deviceWhere(parked)) // the vehicle's name is the label already: just the plate
+        assertEquals("Vehicle climate", typeName(car))
+        assertEquals("1 min left", remoteLeftText(1))
+        assertEquals("3 min left", remoteLeftText(121)) // a started minute counts
+        assertEquals("2 min left", remoteLeftText(120))
+    }
+
+    @Test
+    fun aCarsTargetRangeIsItsOwnWhenItMakesSense() {
+        val (car, parked) = com.ezstats.android.data.parseState(carState).devices
+        assertEquals(62.0 to 80.0, targetRange(car))
+        assertEquals(60.0 to 85.0, targetRange(parked)) // none sent: the usual one
+        val odd = car.copy(car = car.car!!.copy(minTargetF = 70.0, maxTargetF = 70.0))
+        assertEquals(60.0 to 85.0, targetRange(odd))
     }
 
     @Test

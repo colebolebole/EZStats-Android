@@ -108,9 +108,9 @@ internal fun ThermostatScreen(vm: EzViewModel, d: Device, state: StateData, snac
     }
 }
 
-/** The dial, and −, power and + under it. */
+/** The dial, and −, power and + under it. A vehicle's climate control uses it too. */
 @Composable
-private fun ThermostatControls(vm: EzViewModel, d: Device) {
+internal fun ThermostatControls(vm: EzViewModel, d: Device) {
     val units = LocalUnits.current
     val writable = LocalWritable.current
     val haptic = LocalHapticFeedback.current

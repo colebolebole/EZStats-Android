@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.DeviceThermostat
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.HeatPump
@@ -111,7 +112,15 @@ val TYPE_NAME = mapOf(
     "air_monitor" to "Air monitor",
     "air_sensor" to "Air sensor",
     "wind_sensor" to "Wind sensor",
+    "car_climate" to "Vehicle climate",
 )
+
+/** A vehicle's climate modes (EZStats with MTVehicles), as the buttons say them. */
+val CAR_MODES = listOf("auto", "cool", "heat")
+val CAR_MODE_NAME = mapOf("auto" to "Auto", "cool" to "A/C", "heat" to "Heater")
+val CAR_FANS = listOf("auto", "1", "2", "3")
+
+fun carModeName(mode: String) = CAR_MODE_NAME[mode] ?: cap(mode)
 
 val ATTENTION = mapOf(
     "no_units" to "No equipment linked",
@@ -165,6 +174,13 @@ fun deviceWhere(d: Device): String {
     val parts = mutableListOf<String>()
     if (d.nickname != null && d.label.isNotBlank()) parts += d.label
     if (!d.isThermostat && d.label.isBlank() && d.nickname != null) parts += typeName(d)
+    val car = d.car
+    if (car != null) {
+        // A vehicle: which one it is (and its plate), and where, or that it is parked in a chunk that isn't loaded.
+        parts += if (car.vehicleName.isNotBlank() && car.vehicleName != d.label) "${car.vehicleName} (${car.license})" else car.license
+        parts += if (car.loaded) "${d.world} ${d.x}, ${d.y}, ${d.z}" else "not loaded"
+        return parts.joinToString(" · ")
+    }
     parts += "${d.world} ${d.x}, ${d.y}, ${d.z}"
     if (d.pool) parts += "pool"
     if (d.mini) parts += "mini"
@@ -187,6 +203,7 @@ fun deviceIcon(d: Device): ImageVector = when (d.type) {
     "water" -> Icons.Rounded.Waves
     "sensor_hub" -> Icons.Rounded.Hub
     "rpm_monitor" -> Icons.Rounded.Speed
+    "car_climate" -> Icons.Rounded.DirectionsCar
     "settings_panel" -> Icons.Rounded.Settings
     "thermometer", "temperature_sensor", "thermo_hygrometer", "temperature_humidity_sensor" -> Icons.Rounded.DeviceThermostat
     else -> if (d.isThermostat) Icons.Rounded.Thermostat else Icons.Rounded.Sensors

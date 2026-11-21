@@ -198,6 +198,7 @@ fun DetailOverlay(
             when {
                 d == null -> Unit
                 d.isThermostat -> ThermostatScreen(vm, d, state, snackbar, onClose)
+                d.isCar -> CarScreen(vm, d, state, snackbar, onClose)
                 d.isFridge -> FridgeScreen(vm, d, state, snackbar, onClose)
                 d.isHumidityUnit || d.isPurifier -> UnitScreen(vm, d, state, snackbar, onClose)
             }
@@ -326,7 +327,13 @@ fun PowerButton(on: Boolean, name: String, onToggle: (Boolean) -> Unit) {
 
 /** A row of connected toggle buttons, one per option (Expressive's connected button group). */
 @Composable
-fun ConnectedChoice(options: List<String>, current: String?, modifier: Modifier = Modifier, onPick: (String) -> Unit) {
+fun ConnectedChoice(
+    options: List<String>,
+    current: String?,
+    modifier: Modifier = Modifier,
+    label: (String) -> String = ::cap,
+    onPick: (String) -> Unit,
+) {
     val haptic = LocalHapticFeedback.current
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
         options.forEachIndexed { i, name ->
@@ -344,7 +351,7 @@ fun ConnectedChoice(options: List<String>, current: String?, modifier: Modifier 
                     else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                 },
                 modifier = Modifier.weight(1f),
-            ) { Text(cap(name), maxLines = 1) }
+            ) { Text(label(name), maxLines = 1) }
         }
     }
 }

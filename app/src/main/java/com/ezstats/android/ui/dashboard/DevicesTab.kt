@@ -169,10 +169,14 @@ private sealed interface DashRow {
 /** "2 thermostats · 1 heating": what a folded-shut group still has to say for itself. */
 private fun homeSummary(list: List<Device>): String? {
     val thermostats = list.filter { it.isThermostat }
-    if (thermostats.isEmpty()) return if (list.isEmpty()) null else plural(list.size, "device")
-    val parts = mutableListOf(plural(thermostats.size, "thermostat"))
-    thermostats.count { it.isHeating }.takeIf { it > 0 }?.let { parts += "$it heating" }
-    thermostats.count { it.isCooling }.takeIf { it > 0 }?.let { parts += "$it cooling" }
+    val cars = list.filter { it.isCar }
+    if (thermostats.isEmpty() && cars.isEmpty()) return if (list.isEmpty()) null else plural(list.size, "device")
+    val parts = mutableListOf<String>()
+    if (thermostats.isNotEmpty()) parts += plural(thermostats.size, "thermostat")
+    if (cars.isNotEmpty()) parts += plural(cars.size, "car")
+    val climate = thermostats + cars
+    climate.count { it.isHeating }.takeIf { it > 0 }?.let { parts += "$it heating" }
+    climate.count { it.isCooling }.takeIf { it > 0 }?.let { parts += "$it cooling" }
     return parts.joinToString(" · ")
 }
 
@@ -214,8 +218,8 @@ private fun buildRows(state: StateData, banner: String?, collapsed: Set<String>,
     }
 }
 
-/** Thermostats get a wide tile with room for their dial; everything else a compact one. */
-private fun wide(d: Device) = d.isThermostat || d.type == "refrigerator"
+/** Thermostats (and a car's climate control) get a wide tile with room for their dial; everything else a compact one. */
+private fun wide(d: Device) = d.isThermostat || d.isCar || d.type == "refrigerator"
 
 @Composable
 fun DevicesTab(vm: EzViewModel, state: StateData, padding: PaddingValues, gridState: LazyGridState) {

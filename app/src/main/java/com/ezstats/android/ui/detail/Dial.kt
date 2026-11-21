@@ -60,8 +60,17 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** The range a thermostat's target can be set within, in °F. */
-fun targetRange(d: Device) = if (d.pool) 75.0 to 104.0 else 60.0 to 85.0
+/**
+ * The range a thermostat's target can be set within, in °F. A vehicle's climate control says its own (60 to 85 unless
+ * MTVehicles is set otherwise); a range that makes no sense falls back to the usual one.
+ */
+fun targetRange(d: Device): Pair<Double, Double> {
+    val car = d.car
+    val low = car?.minTargetF
+    val high = car?.maxTargetF
+    if (low != null && high != null && high - low >= 1.0) return low to high
+    return if (d.pool) 75.0 to 104.0 else 60.0 to 85.0
+}
 
 private const val START = 135f
 private const val SWEEP = 270f
